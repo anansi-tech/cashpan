@@ -1,0 +1,6 @@
+[package]
+name = "cashpan"
+edition = "2024.beta"
+
+[addresses]
+cashpan = "0x0"
