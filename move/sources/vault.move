@@ -73,6 +73,22 @@ public struct AgentCap has key, store {
 
 // ============ Events ============
 
+public struct WithdrawEvent has copy, drop {
+    vault_id: ID,
+    amount: u64,
+    to: address,
+    liquid_after: u64,
+    by_agent: bool,
+}
+
+public struct SendEvent has copy, drop {
+    vault_id: ID,
+    amount: u64,
+    to: address,
+    liquid_after: u64,
+    by_agent: bool,
+}
+
 public struct RebalanceEvent has copy, drop {
     vault_id: ID,
     direction: u8,
@@ -173,7 +189,15 @@ public fun withdraw<T>(
     ctx: &mut TxContext,
 ): Coin<T> {
     assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
-    coin::from_balance(balance::split(&mut vault.liquid, amount), ctx)
+    let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    event::emit(WithdrawEvent {
+        vault_id: object::id(vault),
+        amount,
+        to: ctx.sender(),
+        liquid_after: balance::value(&vault.liquid),
+        by_agent: false,
+    });
+    coin
 }
 
 /// Redeem the full savings position back to liquid. Owner only.
@@ -244,6 +268,13 @@ public fun owner_send<T>(
     assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
     assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
     let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    event::emit(SendEvent {
+        vault_id: object::id(vault),
+        amount,
+        to: recipient,
+        liquid_after: balance::value(&vault.liquid),
+        by_agent: false,
+    });
     transfer::public_transfer(coin, recipient);
 }
 
@@ -275,6 +306,13 @@ public fun agent_withdraw_to_owner<T>(
     vault.outflow_daily_spent = vault.outflow_daily_spent + amount;
     let payout = vault.payout_address;
     let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    event::emit(WithdrawEvent {
+        vault_id: object::id(vault),
+        amount,
+        to: payout,
+        liquid_after: balance::value(&vault.liquid),
+        by_agent: true,
+    });
     transfer::public_transfer(coin, payout);
 }
 
@@ -305,6 +343,13 @@ public fun agent_send<T>(
 
     vault.outflow_daily_spent = vault.outflow_daily_spent + amount;
     let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    event::emit(SendEvent {
+        vault_id: object::id(vault),
+        amount,
+        to: recipient,
+        liquid_after: balance::value(&vault.liquid),
+        by_agent: true,
+    });
     transfer::public_transfer(coin, recipient);
 }
 
