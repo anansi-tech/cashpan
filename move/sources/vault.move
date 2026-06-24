@@ -11,6 +11,7 @@ use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::event;
 use std::option::{Self, Option};
+use sui::vec_set::{Self, VecSet};
 use cashpan::yield_venue::{Self, YieldVenue, Position};
 
 // ============ Direction constants ============
@@ -28,6 +29,9 @@ const ENoSavingsPosition: u64 = 4;
 const EInvalidDirection: u64 = 5;
 const ENotOwner: u64 = 6;
 const EWrongVenue: u64 = 7;
+const ENotAllowlisted: u64 = 8;
+const EOutflowExceedsPerTxCap: u64 = 9;
+const EOutflowDailyCapExceeded: u64 = 10;
 
 // ============ Objects ============
 
@@ -45,6 +49,12 @@ public struct Vault<phantom T> has key {
     daily_spent: u64,
     last_reset_epoch: u64,
     agent_nonce: u64,
+    // v2: outflow tracking
+    payout_address: address,
+    allowlist: VecSet<address>,
+    outflow_per_tx_cap: u64,
+    outflow_daily_cap: u64,
+    outflow_daily_spent: u64,
 }
 
 /// Full control over the vault. Held by the user only.
@@ -91,14 +101,25 @@ public fun agent_cap_nonce(cap: &AgentCap): u64 { cap.nonce }
 public fun has_savings_position<T>(vault: &Vault<T>): bool {
     option::is_some(&vault.savings_position)
 }
+public fun payout_address<T>(vault: &Vault<T>): address { vault.payout_address }
+public fun outflow_per_tx_cap<T>(vault: &Vault<T>): u64 { vault.outflow_per_tx_cap }
+public fun outflow_daily_cap<T>(vault: &Vault<T>): u64 { vault.outflow_daily_cap }
+public fun outflow_daily_spent<T>(vault: &Vault<T>): u64 { vault.outflow_daily_spent }
+public fun is_allowlisted<T>(vault: &Vault<T>, addr: address): bool {
+    vec_set::contains(&vault.allowlist, &addr)
+}
 
 // ============ Owner setup ============
 
 /// Create a new vault (shared) bound to `venue`. Returns OwnerCap to the caller.
+/// `payout_address` is where agent withdrawals always land.
 public fun create_vault<T>(
     venue: &YieldVenue<T>,
+    payout_address: address,
     per_tx_cap: u64,
     daily_cap: u64,
+    outflow_per_tx_cap: u64,
+    outflow_daily_cap: u64,
     ctx: &mut TxContext,
 ): OwnerCap {
     let uid = object::new(ctx);
@@ -113,6 +134,11 @@ public fun create_vault<T>(
         daily_spent: 0,
         last_reset_epoch: ctx.epoch(),
         agent_nonce: 0,
+        payout_address,
+        allowlist: vec_set::empty(),
+        outflow_per_tx_cap,
+        outflow_daily_cap,
+        outflow_daily_spent: 0,
     });
     OwnerCap { id: object::new(ctx), vault_id }
 }
@@ -204,6 +230,7 @@ public fun rebalance<T>(
     let current_epoch = ctx.epoch();
     if (current_epoch > vault.last_reset_epoch) {
         vault.daily_spent = 0;
+        vault.outflow_daily_spent = 0;
         vault.last_reset_epoch = current_epoch;
     };
     assert!(vault.daily_spent + amount <= vault.daily_cap, EDailyCapExceeded);

@@ -37,10 +37,13 @@ const RATE_BPS = 1_000n;       // 10%
 const PERIOD_EPOCHS = 1n;      // per epoch
 const RESERVE_FUND = 2_000_000_000n; // 2 SUI to fund interest reserve
 
-// Vault caps in MIST (1 SUI = 1_000_000_000 MIST)
-const PER_TX_CAP = 500_000_000n;  // 0.5 SUI per tx
-const DAILY_CAP = 2_000_000_000n; // 2 SUI per epoch
-const INITIAL_FUND = 500_000_000n; // 0.5 SUI initial liquid
+// Vault rebalance caps in MIST
+const PER_TX_CAP = 500_000_000n;       // 0.5 SUI per rebalance tx
+const DAILY_CAP = 2_000_000_000n;      // 2 SUI per epoch (rebalance)
+// Vault outflow caps — separate, tighter limit for coin-out actions
+const OUTFLOW_PER_TX_CAP = 100_000_000n; // 0.1 SUI per outflow tx
+const OUTFLOW_DAILY_CAP = 500_000_000n;  // 0.5 SUI per epoch (outflow)
+const INITIAL_FUND = 500_000_000n;     // 0.5 SUI initial liquid
 
 // Buffer rule (written to .env for agent to read)
 const BUFFER = 250_000_000n;  // 0.25 SUI target liquid
@@ -138,8 +141,11 @@ async function main() {
     typeArguments: [COIN_TYPE],
     arguments: [
       createTx.object(venueId),
+      createTx.pure.address(ownerAddress), // payout_address = owner
       createTx.pure.u64(PER_TX_CAP),
       createTx.pure.u64(DAILY_CAP),
+      createTx.pure.u64(OUTFLOW_PER_TX_CAP),
+      createTx.pure.u64(OUTFLOW_DAILY_CAP),
     ],
   });
   createTx.transferObjects([ownerCapResult], ownerAddress);

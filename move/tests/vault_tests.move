@@ -11,6 +11,9 @@ use sui::test_scenario::{Self as ts, Scenario};
 
 const OWNER: address = @0xAAAA;
 const AGENT: address = @0xBBBB;
+const PAYOUT: address = @0xCCCC;
+const PAYEE: address = @0xDDDD;
+const STRANGER: address = @0xEEEE;
 
 // ============ Constants ============
 
@@ -20,6 +23,8 @@ const FUND_AMOUNT: u64 = 2000;
 const RATE_BPS: u64 = 1_000; // 10% per epoch
 const PERIOD_EPOCHS: u64 = 1;
 const RESERVE_FUND: u64 = 100_000;
+const OUTFLOW_PER_TX_CAP: u64 = 300;
+const OUTFLOW_DAILY_CAP: u64 = 600;
 
 // ============ Helpers ============
 
@@ -46,7 +51,10 @@ fun setup(): Scenario {
     ts::next_tx(&mut s, OWNER);
     {
         let venue: YieldVenue<SUI> = ts::take_shared(&s);
-        let owner_cap = vault::create_vault<SUI>(&venue, PER_TX_CAP, DAILY_CAP, ts::ctx(&mut s));
+        let owner_cap = vault::create_vault<SUI>(
+            &venue, PAYOUT, PER_TX_CAP, DAILY_CAP, OUTFLOW_PER_TX_CAP, OUTFLOW_DAILY_CAP,
+            ts::ctx(&mut s),
+        );
         transfer::public_transfer(owner_cap, OWNER);
         ts::return_shared(venue);
     };
