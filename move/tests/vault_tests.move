@@ -2,6 +2,7 @@
 module cashpan::vault_tests;
 
 use cashpan::vault::{Self, Vault, OwnerCap, AgentCap};
+use cashpan::yield_venue::{Self, YieldVenue};
 use sui::coin;
 use sui::sui::SUI;
 use sui::test_scenario::{Self as ts, Scenario};
@@ -16,16 +17,40 @@ const AGENT: address = @0xBBBB;
 const PER_TX_CAP: u64 = 500;
 const DAILY_CAP: u64 = 1000;
 const FUND_AMOUNT: u64 = 2000;
+const RATE_BPS: u64 = 1_000; // 10% per epoch
+const PERIOD_EPOCHS: u64 = 1;
+const RESERVE_FUND: u64 = 100_000;
 
 // ============ Helpers ============
 
+/// Full setup: venue + vault wired together, vault funded.
 fun setup(): Scenario {
     let mut s = ts::begin(OWNER);
+
+    // Create venue.
     ts::next_tx(&mut s, OWNER);
     {
-        let owner_cap = vault::create_vault<SUI>(PER_TX_CAP, DAILY_CAP, ts::ctx(&mut s));
-        transfer::public_transfer(owner_cap, OWNER);
+        yield_venue::create_venue<SUI>(RATE_BPS, PERIOD_EPOCHS, ts::ctx(&mut s));
     };
+
+    // Fund reserve.
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let reserve_coin = coin::mint_for_testing<SUI>(RESERVE_FUND, ts::ctx(&mut s));
+        yield_venue::fund_reserve(&mut venue, reserve_coin);
+        ts::return_shared(venue);
+    };
+
+    // Create vault.
+    ts::next_tx(&mut s, OWNER);
+    {
+        let venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let owner_cap = vault::create_vault<SUI>(&venue, PER_TX_CAP, DAILY_CAP, ts::ctx(&mut s));
+        transfer::public_transfer(owner_cap, OWNER);
+        ts::return_shared(venue);
+    };
+
     ts::next_tx(&mut s, OWNER);
     s
 }
@@ -72,9 +97,11 @@ fun test_create_vault_zero_balances() {
     ts::next_tx(&mut s, OWNER);
     {
         let vault: Vault<SUI> = ts::take_shared(&s);
+        let venue: YieldVenue<SUI> = ts::take_shared(&s);
         assert!(vault::liquid_balance(&vault) == 0, 0);
-        assert!(vault::savings_balance(&vault) == 0, 1);
+        assert!(vault::savings_balance(&vault, &venue, ts::ctx(&mut s)) == 0, 1);
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     ts::end(s);
 }
@@ -111,10 +138,10 @@ fun test_withdraw_reduces_liquid() {
     ts::end(s);
 }
 
-// ============ Rebalance: sweep ============
+// ============ Rebalance: sweep deposits to venue ============
 
 #[test]
-fun test_sweep_moves_liquid_to_savings() {
+fun test_sweep_moves_liquid_to_venue() {
     let mut s = setup();
     fund_liquid(&mut s, FUND_AMOUNT);
     let agent_cap = get_agent_cap(&mut s);
@@ -122,46 +149,91 @@ fun test_sweep_moves_liquid_to_savings() {
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 500, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
         assert!(vault::liquid_balance(&vault) == FUND_AMOUNT - 500, 0);
-        assert!(vault::savings_balance(&vault) == 500, 1);
+        assert!(vault::savings_balance(&vault, &venue, ts::ctx(&mut s)) == 500, 1);
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
 }
 
-// ============ Rebalance: topup ============
+// ============ Rebalance: topup from venue (interest makes position not fully depleted) ============
 
 #[test]
-fun test_topup_moves_savings_to_liquid() {
+fun test_topup_within_cap_returns_value_and_leaves_interest_remainder() {
     let mut s = setup();
     fund_liquid(&mut s, FUND_AMOUNT);
     let agent_cap = get_agent_cap(&mut s);
 
-    // Sweep first to put funds in savings
+    // Sweep 500 into the venue.
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 500, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
 
-    // Now topup
+    // Advance one epoch — interest accrues (value = 550 at 10%/epoch).
+    ts::next_epoch(&mut s, AGENT);
+
+    // Topup 500 (the per_tx_cap): principal portion from pool + interest portion from reserve.
+    // Because total_value = 550 > amount = 500, the position is NOT fully depleted.
+    // Specifically: principal_out = 500*500/550 = 454, remainder principal = 46.
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::topup(), 300, ts::ctx(&mut s));
-        // liquid: 2000 - 500 + 300 = 1800
-        assert!(vault::liquid_balance(&vault) == 1800, 0);
-        assert!(vault::savings_balance(&vault) == 200, 1);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let liquid_before = vault::liquid_balance(&vault);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::topup(), 500, ts::ctx(&mut s));
+        // Liquid gained exactly 500.
+        assert!(vault::liquid_balance(&vault) == liquid_before + 500, 0);
+        // A non-zero savings position remains (the interest-funded remainder).
+        assert!(vault::has_savings_position(&vault), 1);
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
 }
 
-// ============ Rebalance: daily_spent accumulates ============
+// ============ savings_balance reflects accrued interest ============
+
+#[test]
+fun test_savings_balance_grows_with_epochs() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
+        assert!(vault::savings_balance(&vault, &venue, ts::ctx(&mut s)) == 500, 0);
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+    };
+
+    ts::next_epoch(&mut s, OWNER);
+    ts::next_tx(&mut s, OWNER);
+    {
+        let vault: Vault<SUI> = ts::take_shared(&s);
+        let venue: YieldVenue<SUI> = ts::take_shared(&s);
+        // After 1 epoch at 10%: 500 + 50 = 550
+        assert!(vault::savings_balance(&vault, &venue, ts::ctx(&mut s)) == 550, 0);
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+// ============ daily_spent accumulates ============
 
 #[test]
 fun test_daily_spent_accumulates() {
@@ -172,16 +244,20 @@ fun test_daily_spent_accumulates() {
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 300, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 300, ts::ctx(&mut s));
         assert!(vault::daily_spent(&vault) == 300, 0);
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 200, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 200, ts::ctx(&mut s));
         assert!(vault::daily_spent(&vault) == 500, 1);
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
@@ -199,9 +275,10 @@ fun test_rebalance_aborts_if_exceeds_per_tx_cap() {
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        // PER_TX_CAP = 500; 501 must abort
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), PER_TX_CAP + 1, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), PER_TX_CAP + 1, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
@@ -216,25 +293,30 @@ fun test_rebalance_aborts_if_exceeds_daily_cap() {
     fund_liquid(&mut s, FUND_AMOUNT);
     let agent_cap = get_agent_cap(&mut s);
 
-    // Two calls of 500 = 1000 (at limit). Third 500 must abort.
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 500, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 500, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        // daily_spent = 1000 = DAILY_CAP; adding 1 more must abort
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 1, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        // daily_spent = 1000 = DAILY_CAP; one more must abort.
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 1, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
@@ -249,7 +331,6 @@ fun test_revoked_agent_cap_cannot_rebalance() {
     fund_liquid(&mut s, FUND_AMOUNT);
     let agent_cap = get_agent_cap(&mut s);
 
-    // Owner revokes
     ts::next_tx(&mut s, OWNER);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
@@ -259,12 +340,13 @@ fun test_revoked_agent_cap_cannot_rebalance() {
         ts::return_to_sender(&s, owner_cap);
     };
 
-    // Agent attempts rebalance — must abort
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 100, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 100, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
@@ -276,7 +358,6 @@ fun test_new_agent_cap_valid_after_revoke() {
     fund_liquid(&mut s, FUND_AMOUNT);
     let old_cap = get_agent_cap(&mut s);
 
-    // Revoke old cap
     ts::next_tx(&mut s, OWNER);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
@@ -286,16 +367,16 @@ fun test_new_agent_cap_valid_after_revoke() {
         ts::return_to_sender(&s, owner_cap);
     };
 
-    // Issue new cap with bumped nonce
     let new_cap = get_agent_cap(&mut s);
 
-    // New cap works
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&new_cap, &mut vault, vault::sweep(), 100, ts::ctx(&mut s));
-        assert!(vault::savings_balance(&vault) == 100, 0);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&new_cap, &mut vault, &mut venue, vault::sweep(), 100, ts::ctx(&mut s));
+        assert!(vault::savings_balance(&vault, &venue, ts::ctx(&mut s)) == 100, 0);
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(old_cap, AGENT);
     transfer::public_transfer(new_cap, AGENT);
@@ -303,20 +384,14 @@ fun test_new_agent_cap_valid_after_revoke() {
 }
 
 // ============ AgentCap cannot withdraw to arbitrary address ============
-// (Structural test: there is no entry point on AgentCap that accepts a target address.
-//  The next test confirms the agent can only call rebalance, not withdraw.)
 
 #[test]
 #[expected_failure(abort_code = vault::EAgentRevoked)]
 fun test_agent_cannot_call_withdraw_via_wrong_cap() {
-    // An agent trying to use a zeroed/fake AgentCap is rejected at the nonce check.
-    // The only withdraw entry requires OwnerCap — there is no path for AgentCap.
-    // This test verifies a fabricated AgentCap with a mismatched nonce is rejected.
     let mut s = setup();
     fund_liquid(&mut s, FUND_AMOUNT);
-
-    // Revoke so nonce is 1 but we hand-craft a cap with nonce=0
     let stale_cap = get_agent_cap(&mut s);
+
     ts::next_tx(&mut s, OWNER);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
@@ -329,19 +404,21 @@ fun test_agent_cannot_call_withdraw_via_wrong_cap() {
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
         // stale_cap.nonce = 0, vault.agent_nonce = 1 → EAgentRevoked
-        vault::rebalance(&stale_cap, &mut vault, vault::sweep(), 100, ts::ctx(&mut s));
+        vault::rebalance(&stale_cap, &mut vault, &mut venue, vault::sweep(), 100, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(stale_cap, AGENT);
     ts::end(s);
 }
 
-// ============ Topup bounded by savings ============
+// ============ Topup without savings aborts ============
 
 #[test]
-#[expected_failure(abort_code = vault::EInsufficientSavings)]
-fun test_topup_aborts_if_savings_insufficient() {
+#[expected_failure(abort_code = vault::ENoSavingsPosition)]
+fun test_topup_aborts_if_no_savings_position() {
     let mut s = setup();
     fund_liquid(&mut s, FUND_AMOUNT);
     let agent_cap = get_agent_cap(&mut s);
@@ -349,36 +426,78 @@ fun test_topup_aborts_if_savings_insufficient() {
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        // savings = 0, trying to topup 1 → must abort
-        vault::rebalance(&agent_cap, &mut vault, vault::topup(), 1, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        // No sweep has happened — savings_position is None.
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::topup(), 1, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
 }
 
-// ============ Sweep bounded by liquid ============
+// ============ Sweep without liquid aborts ============
 
 #[test]
 #[expected_failure(abort_code = vault::EInsufficientLiquid)]
 fun test_sweep_aborts_if_liquid_insufficient() {
     let mut s = setup();
-    // Do not fund — liquid = 0
+    // No fund — liquid = 0.
     let agent_cap = get_agent_cap(&mut s);
 
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 1, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 1, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+// ============ OwnerCap can redeem full position ============
+
+#[test]
+fun test_owner_can_redeem_position() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    // Sweep 500 into venue.
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+    };
+
+    // Advance 1 epoch.
+    ts::next_epoch(&mut s, OWNER);
+
+    // Owner redeems full position.
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        let liquid_before = vault::liquid_balance(&vault);
+        vault::redeem_position(&owner_cap, &mut vault, &mut venue, ts::ctx(&mut s));
+        // liquid gained 550 (500 principal + 50 interest at 10%/epoch).
+        assert!(vault::liquid_balance(&vault) == liquid_before + 550, 0);
+        assert!(!vault::has_savings_position(&vault), 1);
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+        ts::return_to_sender(&s, owner_cap);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
 }
 
 // ============ Rebalance emits event ============
-// Events are implicitly checked by the framework; a passing test means emit ran.
-// Off-chain consumers can rely on RebalanceEvent fields.
 
 #[test]
 fun test_rebalance_completes_emitting_event() {
@@ -389,9 +508,10 @@ fun test_rebalance_completes_emitting_event() {
     ts::next_tx(&mut s, AGENT);
     {
         let mut vault: Vault<SUI> = ts::take_shared(&s);
-        // Just verify it doesn't abort — the event is emitted internally.
-        vault::rebalance(&agent_cap, &mut vault, vault::sweep(), 100, ts::ctx(&mut s));
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        vault::rebalance(&agent_cap, &mut vault, &mut venue, vault::sweep(), 100, ts::ctx(&mut s));
         ts::return_shared(vault);
+        ts::return_shared(venue);
     };
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
