@@ -524,3 +524,322 @@ fun test_rebalance_completes_emitting_event() {
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
 }
+
+// ============ v2: owner_send ============
+
+#[test]
+fun test_owner_send_reaches_arbitrary_recipient() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        // STRANGER is not on the allowlist — owner can send there anyway.
+        vault::owner_send(&owner_cap, &mut vault, 200, STRANGER, ts::ctx(&mut s));
+        assert!(vault::liquid_balance(&vault) == FUND_AMOUNT - 200, 0);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EInsufficientLiquid)]
+fun test_owner_send_aborts_if_liquid_insufficient() {
+    let mut s = setup();
+    // No fund — liquid = 0.
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::owner_send(&owner_cap, &mut vault, 1, STRANGER, ts::ctx(&mut s));
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
+// ============ v2: allowlist management ============
+
+#[test]
+fun test_add_and_remove_payee() {
+    let mut s = setup();
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        assert!(!vault::is_allowlisted(&vault, PAYEE), 0);
+        vault::add_payee(&owner_cap, &mut vault, PAYEE);
+        assert!(vault::is_allowlisted(&vault, PAYEE), 1);
+        vault::remove_payee(&owner_cap, &mut vault, PAYEE);
+        assert!(!vault::is_allowlisted(&vault, PAYEE), 2);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
+#[test]
+fun test_set_payout_address() {
+    let mut s = setup();
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        assert!(vault::payout_address(&vault) == PAYOUT, 0);
+        vault::set_payout_address(&owner_cap, &mut vault, STRANGER);
+        assert!(vault::payout_address(&vault) == STRANGER, 1);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
+// ============ v2: agent_withdraw_to_owner ============
+
+#[test]
+fun test_agent_withdraw_to_owner_lands_at_payout_address() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 100, ts::ctx(&mut s));
+        assert!(vault::liquid_balance(&vault) == FUND_AMOUNT - 100, 0);
+        assert!(vault::outflow_daily_spent(&vault) == 100, 1);
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EOutflowExceedsPerTxCap)]
+fun test_agent_withdraw_aborts_if_exceeds_outflow_per_tx_cap() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        // OUTFLOW_PER_TX_CAP = 300; send 301.
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, OUTFLOW_PER_TX_CAP + 1, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EOutflowDailyCapExceeded)]
+fun test_agent_withdraw_aborts_if_exceeds_outflow_daily_cap() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    // Two withdrawals of 300 = 600 = OUTFLOW_DAILY_CAP; a third must abort.
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 300, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 300, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 1, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+fun test_agent_outflow_daily_cap_resets_next_epoch() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    // Hit the daily cap.
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 300, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 300, ts::ctx(&mut s));
+        assert!(vault::outflow_daily_spent(&vault) == 600, 0);
+        ts::return_shared(vault);
+    };
+
+    // Next epoch — counter resets.
+    ts::next_epoch(&mut s, AGENT);
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 300, ts::ctx(&mut s));
+        assert!(vault::outflow_daily_spent(&vault) == 300, 1);
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EAgentRevoked)]
+fun test_revoked_agent_cannot_withdraw_to_owner() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::revoke(&owner_cap, &mut vault);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 100, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EInsufficientLiquid)]
+fun test_agent_withdraw_aborts_if_liquid_insufficient() {
+    let mut s = setup();
+    // No fund — liquid = 0.
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 1, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+// ============ v2: agent_send ============
+
+#[test]
+fun test_agent_send_to_allowlisted_recipient_succeeds() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::add_payee(&owner_cap, &mut vault, PAYEE);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_send(&agent_cap, &mut vault, 100, PAYEE, ts::ctx(&mut s));
+        assert!(vault::liquid_balance(&vault) == FUND_AMOUNT - 100, 0);
+        assert!(vault::outflow_daily_spent(&vault) == 100, 1);
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::ENotAllowlisted)]
+fun test_agent_send_to_non_allowlisted_aborts() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        // STRANGER not on allowlist.
+        vault::agent_send(&agent_cap, &mut vault, 100, STRANGER, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EOutflowExceedsPerTxCap)]
+fun test_agent_send_aborts_if_exceeds_outflow_per_tx_cap() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::add_payee(&owner_cap, &mut vault, PAYEE);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_send(&agent_cap, &mut vault, OUTFLOW_PER_TX_CAP + 1, PAYEE, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EAgentRevoked)]
+fun test_revoked_agent_cannot_send() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::add_payee(&owner_cap, &mut vault, PAYEE);
+        vault::revoke(&owner_cap, &mut vault);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_send(&agent_cap, &mut vault, 100, PAYEE, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
