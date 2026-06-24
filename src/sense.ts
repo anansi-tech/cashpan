@@ -34,7 +34,7 @@ export async function readVaultState(
   const [vaultObj, venueObj, systemState] = await Promise.all([
     client.getObject({ id: vaultId, options: { showContent: true } }),
     client.getObject({ id: venueId, options: { showContent: true } }),
-    client.getCurrentEpoch(),
+    client.getLatestSuiSystemState(),
   ]);
 
   if (vaultObj.data?.content?.dataType !== "moveObject") {
