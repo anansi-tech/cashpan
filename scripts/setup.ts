@@ -35,7 +35,7 @@ const COIN_TYPE = "0x2::sui::SUI";
 // Venue: 10% per epoch on testnet (easy to observe interest accruing quickly)
 const RATE_BPS = 1_000n;       // 10%
 const PERIOD_EPOCHS = 1n;      // per epoch
-const RESERVE_FUND = 2_000_000_000n; // 2 SUI to fund interest reserve
+const RESERVE_FUND = 100_000_000n; // 0.1 SUI reserve (sufficient for testnet at 10%/epoch)
 
 // Vault rebalance caps in MIST
 const PER_TX_CAP = 500_000_000n;       // 0.5 SUI per rebalance tx
