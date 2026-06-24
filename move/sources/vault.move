@@ -201,6 +201,52 @@ public fun redeem_position<T>(
     };
 }
 
+// ============ Owner outflow management ============
+
+/// Change where agent withdrawals are sent. Owner only.
+public fun set_payout_address<T>(owner_cap: &OwnerCap, vault: &mut Vault<T>, addr: address) {
+    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+    vault.payout_address = addr;
+}
+
+/// Add an address to the agent send allowlist. Owner only.
+public fun add_payee<T>(owner_cap: &OwnerCap, vault: &mut Vault<T>, addr: address) {
+    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+    vec_set::insert(&mut vault.allowlist, addr);
+}
+
+/// Remove an address from the agent send allowlist. Owner only.
+public fun remove_payee<T>(owner_cap: &OwnerCap, vault: &mut Vault<T>, addr: address) {
+    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+    vec_set::remove(&mut vault.allowlist, &addr);
+}
+
+/// Update the separate outflow caps. Owner only.
+public fun set_outflow_caps<T>(
+    owner_cap: &OwnerCap,
+    vault: &mut Vault<T>,
+    per_tx: u64,
+    daily: u64,
+) {
+    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+    vault.outflow_per_tx_cap = per_tx;
+    vault.outflow_daily_cap = daily;
+}
+
+/// Send `amount` from liquid to any `recipient`. Owner only — no allowlist, no outflow cap.
+public fun owner_send<T>(
+    owner_cap: &OwnerCap,
+    vault: &mut Vault<T>,
+    amount: u64,
+    recipient: address,
+    ctx: &mut TxContext,
+) {
+    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+    assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
+    let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    transfer::public_transfer(coin, recipient);
+}
+
 // ============ Agent entry ============
 
 /// Move `amount` between liquid and the yield venue in the given `direction`.
