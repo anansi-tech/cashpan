@@ -249,6 +249,65 @@ public fun owner_send<T>(
 
 // ============ Agent entry ============
 
+/// Transfer `amount` from liquid to `vault.payout_address`. Agent only.
+/// The agent cannot choose a destination — it is always `payout_address`.
+/// Guards: not revoked → per-tx outflow cap → daily outflow cap → sufficient liquid.
+public fun agent_withdraw_to_owner<T>(
+    agent_cap: &AgentCap,
+    vault: &mut Vault<T>,
+    amount: u64,
+    ctx: &mut TxContext,
+) {
+    assert!(agent_cap.vault_id == object::id(vault), EAgentRevoked);
+    assert!(agent_cap.nonce == vault.agent_nonce, EAgentRevoked);
+
+    let current_epoch = ctx.epoch();
+    if (current_epoch > vault.last_reset_epoch) {
+        vault.daily_spent = 0;
+        vault.outflow_daily_spent = 0;
+        vault.last_reset_epoch = current_epoch;
+    };
+
+    assert!(amount <= vault.outflow_per_tx_cap, EOutflowExceedsPerTxCap);
+    assert!(vault.outflow_daily_spent + amount <= vault.outflow_daily_cap, EOutflowDailyCapExceeded);
+    assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
+
+    vault.outflow_daily_spent = vault.outflow_daily_spent + amount;
+    let payout = vault.payout_address;
+    let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    transfer::public_transfer(coin, payout);
+}
+
+/// Transfer `amount` from liquid to `recipient`. Agent only.
+/// `recipient` must be on the owner-managed allowlist.
+/// Guards: not revoked → allowlisted → per-tx outflow cap → daily outflow cap → sufficient liquid.
+public fun agent_send<T>(
+    agent_cap: &AgentCap,
+    vault: &mut Vault<T>,
+    amount: u64,
+    recipient: address,
+    ctx: &mut TxContext,
+) {
+    assert!(agent_cap.vault_id == object::id(vault), EAgentRevoked);
+    assert!(agent_cap.nonce == vault.agent_nonce, EAgentRevoked);
+    assert!(vec_set::contains(&vault.allowlist, &recipient), ENotAllowlisted);
+
+    let current_epoch = ctx.epoch();
+    if (current_epoch > vault.last_reset_epoch) {
+        vault.daily_spent = 0;
+        vault.outflow_daily_spent = 0;
+        vault.last_reset_epoch = current_epoch;
+    };
+
+    assert!(amount <= vault.outflow_per_tx_cap, EOutflowExceedsPerTxCap);
+    assert!(vault.outflow_daily_spent + amount <= vault.outflow_daily_cap, EOutflowDailyCapExceeded);
+    assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
+
+    vault.outflow_daily_spent = vault.outflow_daily_spent + amount;
+    let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+    transfer::public_transfer(coin, recipient);
+}
+
 /// Move `amount` between liquid and the yield venue in the given `direction`.
 ///
 /// SWEEP (0): splits `amount` from liquid → venue deposit (extends or creates position).
