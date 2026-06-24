@@ -79,10 +79,6 @@ async function main() {
     typeArguments: [COIN_TYPE],
     arguments: [venueTx.pure.u64(RATE_BPS), venueTx.pure.u64(PERIOD_EPOCHS)],
   });
-  const [reserveCoin] = venueTx.splitCoins(venueTx.gas, [RESERVE_FUND]);
-  // fund_reserve needs the venue object — use a nested transaction result
-  // create_venue shares the object, so we find it from effects instead.
-  // We split into two transactions: create, then fund.
   const venueCreateResult = await client.signAndExecuteTransaction({
     signer: ownerKeypair(),
     transaction: venueTx,
