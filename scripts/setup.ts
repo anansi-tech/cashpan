@@ -1,19 +1,20 @@
 /**
- * Cashpan setup script.
+ * Cashpan setup script (v1).
  *
  * Steps:
- *   1. Publish the Move package
- *   2. Call create_vault<SUI> → shares Vault, returns OwnerCap
- *   3. Call issue_agent_cap → returns AgentCap to a separate agent address
- *   4. Deposit an initial liquid balance
- *   5. Print all object IDs and write a ready .env
+ *   1. Publish the Move package (vault + yield_venue)
+ *   2. Create YieldVenue and fund its reserve
+ *   3. Create Vault bound to the venue
+ *   4. Issue AgentCap to a fresh keypair
+ *   5. Deposit initial liquid balance
+ *   6. Write all IDs + agent key to .env
  *
  * Prerequisites:
  *   - `sui` CLI configured with the owner keypair as active address (testnet)
  *   - Run: tsx scripts/setup.ts
  *
  * The agent keypair is generated fresh and its private key is written to .env.
- * Store it securely — it can call rebalance() up to the configured caps.
+ * It can ONLY call rebalance(), bounded by per-tx and daily caps. Owner can revoke instantly.
  */
 
 import { execSync } from "child_process";
@@ -31,21 +32,28 @@ const MOVE_DIR = join(ROOT, "move");
 const RPC_URL = process.env.SUI_RPC_URL ?? "https://fullnode.testnet.sui.io:443";
 const COIN_TYPE = "0x2::sui::SUI";
 
-// Caps in MIST (1 SUI = 1_000_000_000 MIST)
-const PER_TX_CAP = 500_000_000n;   // 0.5 SUI per tx
-const DAILY_CAP = 2_000_000_000n;  // 2 SUI per day
-const INITIAL_FUND = 500_000_000n; // 0.5 SUI to seed liquid balance
+// Venue: 10% per epoch on testnet (easy to observe interest accruing quickly)
+const RATE_BPS = 1_000n;       // 10%
+const PERIOD_EPOCHS = 1n;      // per epoch
+const RESERVE_FUND = 2_000_000_000n; // 2 SUI to fund interest reserve
+
+// Vault caps in MIST (1 SUI = 1_000_000_000 MIST)
+const PER_TX_CAP = 500_000_000n;  // 0.5 SUI per tx
+const DAILY_CAP = 2_000_000_000n; // 2 SUI per epoch
+const INITIAL_FUND = 500_000_000n; // 0.5 SUI initial liquid
 
 // Buffer rule (written to .env for agent to read)
-const BUFFER = 1_000_000_000n;  // 1 SUI target liquid
-const BAND = 100_000_000n;      // 0.1 SUI dead-band
+const BUFFER = 250_000_000n;  // 0.25 SUI target liquid
+const BAND = 25_000_000n;     // 0.025 SUI dead-band
 
 async function main() {
   const client = new SuiJsonRpcClient({ url: RPC_URL });
+  const ownerAddress = execSync("sui client active-address", { encoding: "utf8" }).trim();
 
-  console.log("=== Cashpan Setup ===\n");
+  console.log("=== Cashpan v1 Setup ===\n");
+  console.log(`Owner: ${ownerAddress}\n`);
 
-  // ---- 1. Publish the Move package ----
+  // ---- 1. Publish ----
   console.log("1. Publishing Move package...");
   const publishOutput = execSync(
     `sui client publish --gas-budget 200000000 --json "${MOVE_DIR}"`,
@@ -60,19 +68,60 @@ async function main() {
   const packageId = publishResult.effects.created
     .find((obj: { owner: unknown }) => obj.owner === "Immutable")
     ?.reference?.objectId;
-
   if (!packageId) throw new Error("Could not find package ID in publish output");
   console.log(`   Package ID: ${packageId}`);
 
-  // ---- 2. Create vault ----
-  console.log("\n2. Creating vault...");
-  const ownerAddress = execSync("sui client active-address", { encoding: "utf8" }).trim();
+  // ---- 2. Create YieldVenue + fund reserve ----
+  console.log("\n2. Creating YieldVenue and funding reserve...");
+  const venueTx = new Transaction();
+  venueTx.moveCall({
+    target: `${packageId}::yield_venue::create_venue`,
+    typeArguments: [COIN_TYPE],
+    arguments: [venueTx.pure.u64(RATE_BPS), venueTx.pure.u64(PERIOD_EPOCHS)],
+  });
+  const [reserveCoin] = venueTx.splitCoins(venueTx.gas, [RESERVE_FUND]);
+  // fund_reserve needs the venue object — use a nested transaction result
+  // create_venue shares the object, so we find it from effects instead.
+  // We split into two transactions: create, then fund.
+  const venueCreateResult = await client.signAndExecuteTransaction({
+    signer: ownerKeypair(),
+    transaction: venueTx,
+    options: { showEffects: true, showObjectChanges: true },
+  });
+  if (venueCreateResult.effects?.status.status !== "success") {
+    throw new Error(`create_venue failed: ${venueCreateResult.effects?.status.error}`);
+  }
+  const venueId = venueCreateResult.objectChanges?.find(
+    (c) => c.type === "created" && "objectType" in c && c.objectType.includes("YieldVenue"),
+  )?.["objectId"];
+  if (!venueId) throw new Error("Could not find YieldVenue ID");
+  console.log(`   YieldVenue ID: ${venueId}`);
 
+  const fundReserveTx = new Transaction();
+  const [res] = fundReserveTx.splitCoins(fundReserveTx.gas, [RESERVE_FUND]);
+  fundReserveTx.moveCall({
+    target: `${packageId}::yield_venue::fund_reserve`,
+    typeArguments: [COIN_TYPE],
+    arguments: [fundReserveTx.object(venueId), res],
+  });
+  const fundReserveResult = await client.signAndExecuteTransaction({
+    signer: ownerKeypair(),
+    transaction: fundReserveTx,
+    options: { showEffects: true },
+  });
+  if (fundReserveResult.effects?.status.status !== "success") {
+    throw new Error(`fund_reserve failed: ${fundReserveResult.effects?.status.error}`);
+  }
+  console.log(`   Reserve funded: ${RESERVE_FUND} MIST`);
+
+  // ---- 3. Create Vault (bound to venue) ----
+  console.log("\n3. Creating Vault...");
   const createTx = new Transaction();
   const ownerCapResult = createTx.moveCall({
     target: `${packageId}::vault::create_vault`,
     typeArguments: [COIN_TYPE],
     arguments: [
+      createTx.object(venueId),
       createTx.pure.u64(PER_TX_CAP),
       createTx.pure.u64(DAILY_CAP),
     ],
@@ -84,7 +133,6 @@ async function main() {
     transaction: createTx,
     options: { showEffects: true, showObjectChanges: true },
   });
-
   if (createResult.effects?.status.status !== "success") {
     throw new Error(`create_vault failed: ${createResult.effects?.status.error}`);
   }
@@ -95,13 +143,12 @@ async function main() {
   const ownerCapId = createResult.objectChanges?.find(
     (c) => c.type === "created" && "objectType" in c && c.objectType.includes("OwnerCap"),
   )?.["objectId"];
-
   if (!vaultId || !ownerCapId) throw new Error("Could not find Vault or OwnerCap IDs");
   console.log(`   Vault ID:    ${vaultId}`);
   console.log(`   OwnerCap ID: ${ownerCapId}`);
 
-  // ---- 3. Generate agent keypair + issue AgentCap ----
-  console.log("\n3. Issuing AgentCap...");
+  // ---- 4. Issue AgentCap to fresh keypair ----
+  console.log("\n4. Issuing AgentCap...");
   const agentKeypair = new Ed25519Keypair();
   const agentAddress = agentKeypair.getPublicKey().toSuiAddress();
   console.log(`   Agent address: ${agentAddress}`);
@@ -119,19 +166,17 @@ async function main() {
     transaction: issueTx,
     options: { showEffects: true, showObjectChanges: true },
   });
-
   if (issueResult.effects?.status.status !== "success") {
     throw new Error(`issue_agent_cap failed: ${issueResult.effects?.status.error}`);
   }
-
   const agentCapId = issueResult.objectChanges?.find(
     (c) => c.type === "created" && "objectType" in c && c.objectType.includes("AgentCap"),
   )?.["objectId"];
   if (!agentCapId) throw new Error("Could not find AgentCap ID");
   console.log(`   AgentCap ID: ${agentCapId}`);
 
-  // ---- 4. Fund vault liquid balance ----
-  console.log("\n4. Funding vault...");
+  // ---- 5. Fund vault liquid ----
+  console.log("\n5. Funding vault liquid...");
   const fundTx = new Transaction();
   const [fundCoin] = fundTx.splitCoins(fundTx.gas, [INITIAL_FUND]);
   fundTx.moveCall({
@@ -139,23 +184,22 @@ async function main() {
     typeArguments: [COIN_TYPE],
     arguments: [fundTx.object(ownerCapId), fundTx.object(vaultId), fundCoin],
   });
-
   const fundResult = await client.signAndExecuteTransaction({
     signer: ownerKeypair(),
     transaction: fundTx,
     options: { showEffects: true },
   });
-
   if (fundResult.effects?.status.status !== "success") {
     throw new Error(`deposit failed: ${fundResult.effects?.status.error}`);
   }
   console.log(`   Deposited ${INITIAL_FUND} MIST into liquid`);
 
-  // ---- 5. Write .env ----
-  console.log("\n5. Writing .env...");
-  const env = `# Generated by setup.ts — do not commit
+  // ---- 6. Write .env ----
+  console.log("\n6. Writing .env...");
+  const env = `# Generated by setup.ts (v1) — do not commit
 SUI_RPC_URL=${RPC_URL}
 PACKAGE_ID=${packageId}
+VENUE_ID=${venueId}
 VAULT_ID=${vaultId}
 OWNER_CAP_ID=${ownerCapId}
 AGENT_CAP_ID=${agentCapId}
@@ -165,43 +209,38 @@ BUFFER=${BUFFER}
 BAND=${BAND}
 INTERVAL_MS=300000
 `;
-
-  const envPath = join(ROOT, ".env");
-  writeFileSync(envPath, env);
-  console.log(`   Wrote ${envPath}`);
+  writeFileSync(join(ROOT, ".env"), env);
+  console.log(`   Wrote .env`);
 
   console.log("\n=== Setup complete ===");
   console.log("\nRun the agent:");
   console.log("  npm run agent\n");
   console.log("Explorer links:");
   console.log(`  Package: https://suiexplorer.com/object/${packageId}?network=testnet`);
+  console.log(`  Venue:   https://suiexplorer.com/object/${venueId}?network=testnet`);
   console.log(`  Vault:   https://suiexplorer.com/object/${vaultId}?network=testnet`);
 }
 
 /** Load the keypair for the current `sui client active-address` from the keystore. */
 function ownerKeypair(): Ed25519Keypair {
   const activeAddress = execSync("sui client active-address", { encoding: "utf8" }).trim();
-
-  const homeDir = process.env.HOME ?? "/root";
-  const keystorePath = join(homeDir, ".sui", "sui_config", "sui.keystore");
+  const keystorePath = join(process.env.HOME ?? "/root", ".sui", "sui_config", "sui.keystore");
 
   if (!existsSync(keystorePath)) {
     throw new Error(`Keystore not found at ${keystorePath}. Run 'sui client' first.`);
   }
 
   const keystore: string[] = JSON.parse(readFileSync(keystorePath, "utf8"));
-
   for (const entry of keystore) {
     const raw = Buffer.from(entry, "base64");
-    // Ed25519: scheme byte (0x00) + 32-byte private key seed
-    if (raw[0] !== 0x00) continue; // skip non-Ed25519 keys
+    if (raw[0] !== 0x00) continue; // skip non-Ed25519 entries
     const kp = Ed25519Keypair.fromSecretKey(raw.slice(1, 33));
     if (kp.getPublicKey().toSuiAddress() === activeAddress) return kp;
   }
 
   throw new Error(
     `No key in keystore matches active address ${activeAddress}. ` +
-    `Run 'sui client switch --address <addr>' to select the right address.`,
+      `Run 'sui client switch --address <addr>' to select the right address.`,
   );
 }
 
