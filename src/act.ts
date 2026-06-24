@@ -20,6 +20,7 @@ export async function act(
     arguments: [
       tx.object(config.agentCapId),
       tx.object(config.vaultId),
+      tx.object(config.venueId),
       tx.pure.u8(DIRECTION[decision.action]),
       tx.pure.u64(decision.amount),
     ],

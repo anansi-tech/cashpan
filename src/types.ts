@@ -1,5 +1,6 @@
 export interface VaultState {
   liquid: bigint;
+  /** Current value of the savings position (principal + accrued interest). */
   savings: bigint;
   perTxCap: bigint;
   dailyCap: bigint;
@@ -18,6 +19,7 @@ export interface AgentConfig {
   rpcUrl: string;
   packageId: string;
   vaultId: string;
+  venueId: string;
   agentCapId: string;
   agentPrivateKey: string;
   coinType: string;

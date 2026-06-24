@@ -20,6 +20,7 @@ function loadConfig(): AgentConfig {
   const required = [
     "PACKAGE_ID",
     "VAULT_ID",
+    "VENUE_ID",
     "AGENT_CAP_ID",
     "AGENT_PRIVATE_KEY",
     "COIN_TYPE",
@@ -35,6 +36,7 @@ function loadConfig(): AgentConfig {
     rpcUrl: process.env.SUI_RPC_URL ?? "https://fullnode.testnet.sui.io:443",
     packageId: process.env.PACKAGE_ID!,
     vaultId: process.env.VAULT_ID!,
+    venueId: process.env.VENUE_ID!,
     agentCapId: process.env.AGENT_CAP_ID!,
     agentPrivateKey: process.env.AGENT_PRIVATE_KEY!,
     coinType: process.env.COIN_TYPE!,
@@ -45,7 +47,7 @@ function loadConfig(): AgentConfig {
 }
 
 async function tick(client: SuiJsonRpcClient, keypair: Ed25519Keypair, config: AgentConfig) {
-  const state = await readVaultState(client, config.vaultId);
+  const state = await readVaultState(client, config.vaultId, config.venueId);
 
   const decision = decide(state, {
     buffer: config.buffer,
