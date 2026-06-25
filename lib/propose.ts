@@ -138,9 +138,9 @@ async function fetchVaultState(): Promise<VaultState> {
   const outflowDailyCap = BigInt(String(vf.outflow_daily_cap ?? '0'));
   const outflowDailySpent = BigInt(String(vf.outflow_daily_spent ?? '0'));
 
-  // VecSet<address> serializes as {contents: ["0x...", ...]}
-  const allowlistRaw = vf.allowlist as { contents?: string[] } | null;
-  const allowlistAddresses = allowlistRaw?.contents ?? [];
+  // VecSet<address> serializes as {type: "...", fields: {contents: ["0x...", ...]}}
+  const allowlistObj = vf.allowlist as { fields?: { contents?: string[] }; contents?: string[] } | null;
+  const allowlistAddresses = allowlistObj?.fields?.contents ?? allowlistObj?.contents ?? [];
 
   // Epoch reset: on-chain resets daily spend when epoch advances
   const epochReset = currentEpoch > lastResetEpoch;

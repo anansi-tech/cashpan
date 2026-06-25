@@ -63,8 +63,8 @@ async function revalidate(proposal: Proposal): Promise<void> {
     if (!recipient) throw new Error(`Payee "${proposal.payeeLabel}" not found in config`);
     if (recipient !== proposal.recipient) throw new Error('Recipient mismatch');
 
-    const allowlistRaw = vf.allowlist as { contents?: string[] } | null;
-    const allowlist = new Set(allowlistRaw?.contents ?? []);
+    const allowlistObj = vf.allowlist as { fields?: { contents?: string[] }; contents?: string[] } | null;
+    const allowlist = new Set(allowlistObj?.fields?.contents ?? allowlistObj?.contents ?? []);
     if (!allowlist.has(recipient)) throw new Error(`${recipient} is not on the vault allowlist`);
 
     const outflowPerTxCap = BigInt(String(vf.outflow_per_tx_cap ?? '0'));
