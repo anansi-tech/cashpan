@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
+import { DefaultChatTransport, isToolUIPart, getToolName } from 'ai';
 import type { UIMessage } from 'ai';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { ConfirmCard } from './ConfirmCard';
@@ -132,15 +132,15 @@ function ChatMessage({
     .map((p) => p.text)
     .join('');
 
-  // Collect proposal tool parts (DynamicToolUIPart with state output-available)
+  // Collect proposal tool parts. In AI SDK v6, tool parts are either
+  // ToolUIPart (type='tool-proposeSend') or DynamicToolUIPart (type='dynamic-tool').
+  // isToolUIPart + getToolName handle both; check state separately.
   type LoosePart = Record<string, unknown>;
-  const proposalParts = (message.parts as LoosePart[]).filter(
-    (p) =>
-      p['type'] === 'dynamic-tool' &&
-      typeof p['toolName'] === 'string' &&
-      (p['toolName'] as string).startsWith('propose') &&
-      p['state'] === 'output-available',
-  );
+  const proposalParts = (message.parts as LoosePart[]).filter((p) => {
+    if (!isToolUIPart(p as never)) return false;
+    const name = getToolName(p as never);
+    return name.startsWith('propose') && p['state'] === 'output-available';
+  });
 
   if (!text && proposalParts.length === 0) return null;
 
