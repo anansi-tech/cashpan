@@ -119,6 +119,13 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
     };
   }, [poll]);
 
+  // Immediate refresh when a transaction is confirmed via the chat
+  useEffect(() => {
+    const handler = () => { void poll(); };
+    window.addEventListener('cashpan:refresh', handler);
+    return () => window.removeEventListener('cashpan:refresh', handler);
+  }, [poll]);
+
   // Derived display values
   const liquid = displayed.liquid;
   const savingsValue = displayed.savingsValue;

@@ -40,6 +40,13 @@ export function ActivityFeed({ initial }: ActivityFeedProps) {
     return () => clearInterval(interval);
   }, [poll]);
 
+  // Immediate refresh when a transaction is confirmed via the chat
+  useEffect(() => {
+    const handler = () => { void poll(); };
+    window.addEventListener('cashpan:refresh', handler);
+    return () => window.removeEventListener('cashpan:refresh', handler);
+  }, [poll]);
+
   return (
     <div
       style={{
