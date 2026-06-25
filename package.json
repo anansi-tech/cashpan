@@ -10,6 +10,7 @@
     "agent": "tsx src/agent.ts",
     "setup": "tsx scripts/setup.ts",
     "drain": "tsx scripts/drain.ts",
+    "deposit": "tsx scripts/deposit.ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "dependencies": {
