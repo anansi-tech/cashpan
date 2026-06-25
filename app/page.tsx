@@ -1,10 +1,15 @@
-import { getBalances, getEarnings } from '@/lib/read-layer';
+import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { LiveDashboard } from '@/components/LiveDashboard';
+import { ActivityFeed } from '@/components/ActivityFeed';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
-  const [balances, earnings] = await Promise.all([getBalances(), getEarnings()]);
+  const [balances, earnings, activity] = await Promise.all([
+    getBalances(),
+    getEarnings(),
+    getAgentActivity(20),
+  ]);
 
   return (
     <div
@@ -67,7 +72,7 @@ export default async function Page() {
           overflow: 'hidden',
         }}
       >
-        {/* Left: live dashboard */}
+        {/* Left: live dashboard + activity feed */}
         <main
           style={{
             padding: '1.5rem',
@@ -76,6 +81,7 @@ export default async function Page() {
           }}
         >
           <LiveDashboard initial={{ balances, earnings }} />
+          <ActivityFeed initial={activity} />
         </main>
 
         {/* Right: Chat placeholder */}
