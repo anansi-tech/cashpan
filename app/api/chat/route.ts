@@ -1,40 +1,79 @@
 /**
- * Read-only LLM chat route.
+ * Read-only + propose LLM chat route.
  *
- * INVARIANT: the tool surface here is exactly the four read functions.
- * grep this file for signAndExecute, Transaction, owner_send, agent_send, withdraw → none present.
+ * INVARIANT: NO tool here signs or submits a transaction.
+ * The propose tools return structured proposals only.
+ * /api/execute (a separate endpoint, NOT registered here) is the only signer.
  *
- * The model can read state and answer; it cannot move money, by construction.
+ * grep this file for signAndExecuteTransaction, Transaction, owner_send,
+ * agent_send, withdraw → none present.
  */
 
 import { streamText, tool, convertToModelMessages, jsonSchema, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { getBalances, getEarnings, getAgentActivity, getConfig } from '@/lib/read-layer';
+import {
+  proposeSend,
+  proposeWithdrawToMe,
+  proposeSweep,
+  proposeTopup,
+  getPayeeMap,
+} from '@/lib/propose';
 
-const SYSTEM_PROMPT = `You are the CashPan money assistant — warm, plain, and helpful for someone who is not crypto-savvy.
+function buildSystemPrompt(): string {
+  const payees = getPayeeMap();
+  const labels = Object.keys(payees);
+  const payeeList =
+    labels.length > 0
+      ? `Known payees (these are the only valid labels for proposeSend): ${labels.join(', ')}.`
+      : 'No payees are configured yet — proposeSend will always block with "not_a_payee" until the user adds entries to their PAYEES env config.';
 
-CashPan is a personal savings app on the Sui blockchain. It has two pockets:
+  return `You are the CashPan money assistant — warm, plain, and concise.
+
+CashPan has two pockets:
 - Spend pocket: liquid funds ready to use
-- Savings pocket: funds earning yield automatically via the agent
+- Savings pocket: funds earning yield, managed automatically by the agent
 
-The agent is an autonomous bot that sweeps excess funds to savings and tops up spending when it runs low.
+The agent sweeps excess liquid to savings and tops up when the spend pocket runs low.
 
-Use plain language. Say "spend pocket" and "savings pocket" instead of "liquid" and "vault position". Values are in SUI (1 SUI = 1,000,000,000 MIST). Always call the read tools to get live data; never guess from memory.
+${payeeList}
 
-If the user asks you to send, withdraw, move, or do anything that changes their vault: explain warmly that you can only read information right now. You have no ability to move money in this version — the write features come in a future update. Do not apologize excessively, just be clear and helpful.`;
+## Reading data
+Call getBalances, getEarnings, getAgentActivity, or getConfig whenever you need live data. Never guess balances from memory.
+
+## Proposing money moves
+When the user's intent to move money is clear, immediately call the matching propose tool. These tools validate the move from fresh on-chain reads and return a proposal — they do NOT execute anything. A confirmation card appears in the UI for the user to tap.
+
+- proposeSend({ amount, payeeLabel }) — "send mom 0.05 SUI", "pay Alex $20"
+- proposeWithdrawToMe({ amount }) — "give me back 0.1 SUI", "withdraw to my wallet"
+- proposeSweep({ amount? }) — "put aside $50", "sweep everything", "move to savings"
+- proposeTopup({ amount }) — "move 0.1 to spending", "top up my spend pocket"
+
+Amounts are in SUI as a decimal string, e.g. "0.05".
+
+## After receiving a proposal result
+- If blocked: explain the reason warmly in one or two sentences and suggest what the user can do.
+- If not blocked: confirm in one sentence what you've set up, then let the card do the rest. Don't repeat all the numbers — the card shows them.
+
+## Hard rules
+- Values in SUI (1 SUI = 1,000,000,000 MIST). Always speak in SUI.
+- Never sign or submit. The propose tools only compute; tapping Confirm is what executes.
+- Owner cap, owner key: never referenced here. Agent cap only for chat moves.`;
+}
 
 export async function POST(req: Request) {
   const { messages } = await req.json();
 
   const result = streamText({
     model: openai('gpt-4o-mini'),
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(),
     messages: await convertToModelMessages(messages),
-    stopWhen: stepCountIs(3),
+    stopWhen: stepCountIs(5),
     tools: {
+      // ── 3a reads ──────────────────────────────────────────────────────────
+
       getBalances: tool({
-        description:
-          'Get the current balances: liquid spend pocket, savings pocket value (principal + accrued interest), and total. All amounts are in SUI.',
+        description: 'Get current balances (spend pocket, savings pocket, total) in SUI.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
@@ -53,7 +92,7 @@ export async function POST(req: Request) {
       }),
 
       getEarnings: tool({
-        description: 'Get accrued interest earned so far (in SUI) and the yield rate in basis points per epoch.',
+        description: 'Get accrued interest earned (in SUI) and yield rate (bps/epoch).',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
@@ -69,21 +108,16 @@ export async function POST(req: Request) {
       }),
 
       getAgentActivity: tool({
-        description:
-          'Get recent on-chain events showing what the agent has been doing: sweeps to savings, topups to spending, withdrawals, sends.',
+        description: 'Get recent on-chain agent events (sweeps, topups, withdrawals, sends).',
         inputSchema: jsonSchema<{ limit?: number }>({
           type: 'object',
           properties: {
-            limit: {
-              type: 'number',
-              description: 'How many recent events to return (default 10, max 50)',
-            },
+            limit: { type: 'number', description: 'Max events to return (default 10, max 50)' },
           },
           additionalProperties: false,
         }),
         execute: async ({ limit }: { limit?: number }) => {
           const events = await getAgentActivity(limit ?? 10);
-          // amount fields are MIST; expose only the pre-formatted text to the model
           return events.map(({ text, type, direction, epochStr, timestampMs }) => ({
             text,
             type,
@@ -95,8 +129,7 @@ export async function POST(req: Request) {
       }),
 
       getConfig: tool({
-        description:
-          'Get vault configuration: buffer target, rebalance band, per-tx and daily caps, payout address. All SUI amounts shown in SUI.',
+        description: 'Get vault config: buffer, caps, payout address. All SUI amounts in SUI.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
@@ -115,6 +148,71 @@ export async function POST(req: Request) {
             payoutAddress: raw.payoutAddress,
           };
         },
+      }),
+
+      // ── 3b proposal tools (read + validate; no signing) ───────────────────
+
+      proposeSend: tool({
+        description:
+          'Propose sending SUI to a named payee. Returns a proposal the user must confirm. Call this when the user says "send X to Y", "pay X", etc.',
+        inputSchema: jsonSchema<{ amount: string; payeeLabel: string }>({
+          type: 'object',
+          properties: {
+            amount: {
+              type: 'string',
+              description: 'Amount in SUI as a decimal string, e.g. "0.05"',
+            },
+            payeeLabel: {
+              type: 'string',
+              description: 'Payee label (e.g. "mom"). Must match a known payee.',
+            },
+          },
+          required: ['amount', 'payeeLabel'],
+          additionalProperties: false,
+        }),
+        execute: async ({ amount, payeeLabel }: { amount: string; payeeLabel: string }) =>
+          proposeSend(amount, payeeLabel),
+      }),
+
+      proposeWithdrawToMe: tool({
+        description:
+          'Propose withdrawing SUI from the spend pocket to the owner\'s payout address. Call this for "give me back", "withdraw to my wallet", etc.',
+        inputSchema: jsonSchema<{ amount: string }>({
+          type: 'object',
+          properties: {
+            amount: { type: 'string', description: 'Amount in SUI, e.g. "0.1"' },
+          },
+          required: ['amount'],
+          additionalProperties: false,
+        }),
+        execute: async ({ amount }: { amount: string }) => proposeWithdrawToMe(amount),
+      }),
+
+      proposeSweep: tool({
+        description:
+          'Propose moving liquid SUI to the savings pocket (sweep). Call this for "put aside", "save", "move to savings". Amount is optional — omit to sweep as much as the per-tx cap allows.',
+        inputSchema: jsonSchema<{ amount?: string }>({
+          type: 'object',
+          properties: {
+            amount: { type: 'string', description: 'Amount in SUI (optional)' },
+          },
+          additionalProperties: false,
+        }),
+        execute: async ({ amount }: { amount?: string }) => proposeSweep(amount),
+      }),
+
+      proposeTopup: tool({
+        description:
+          'Propose moving SUI from savings to the spend pocket (topup). Call this for "move to spending", "top up", "I need cash".',
+        inputSchema: jsonSchema<{ amount: string }>({
+          type: 'object',
+          properties: {
+            amount: { type: 'string', description: 'Amount in SUI, e.g. "0.1"' },
+          },
+          required: ['amount'],
+          additionalProperties: false,
+        }),
+        execute: async ({ amount }: { amount: string }) => proposeTopup(amount),
       }),
     },
   });
