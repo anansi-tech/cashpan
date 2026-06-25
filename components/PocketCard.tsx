@@ -7,11 +7,17 @@ interface PocketCardProps {
   amountMist: string;
   label: string;
   sublabel?: string;
+  /** Override decimal places (default: 4 liquid, 9 savings) */
+  decimals?: number;
 }
 
-export function PocketCard({ type, amountMist, label, sublabel }: PocketCardProps) {
+export function PocketCard({ type, amountMist, label, sublabel, decimals }: PocketCardProps) {
   const isSavings = type === 'savings';
-  const sui = formatSui(amountMist, 6);
+  const d = decimals ?? (isSavings ? 9 : 4);
+  const raw = (Number(amountMist) / 1e9).toFixed(d);
+  // For savings, split the number so we can highlight the ticking tail digits
+  const mainDigits = isSavings ? raw.slice(0, -3) : raw;
+  const tailDigits = isSavings ? raw.slice(-3) : '';
 
   return (
     <div
@@ -34,14 +40,21 @@ export function PocketCard({ type, amountMist, label, sublabel }: PocketCardProp
       <div
         style={{
           fontFamily: 'var(--font-mono)',
-          fontSize: '1.75rem',
+          fontSize: isSavings ? '1.35rem' : '1.75rem',
           fontWeight: 700,
           color: isSavings ? 'var(--color-savings)' : 'var(--color-liquid)',
           lineHeight: 1.2,
           letterSpacing: '-0.02em',
+          display: 'flex',
+          alignItems: 'baseline',
         }}
       >
-        {sui}
+        <span>{mainDigits}</span>
+        {tailDigits && (
+          <span style={{ color: 'rgba(52,211,153,0.55)', fontSize: '1.1rem' }}>
+            {tailDigits}
+          </span>
+        )}
       </div>
 
       <div style={{ color: 'var(--color-muted-2)', fontSize: '0.8rem' }}>

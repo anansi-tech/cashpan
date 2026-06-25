@@ -1,5 +1,5 @@
 import { getBalances, getEarnings } from '@/lib/read-layer';
-import { Dashboard } from '@/components/Dashboard';
+import { LiveDashboard } from '@/components/LiveDashboard';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +58,7 @@ export default async function Page() {
         </div>
       </header>
 
-      {/* Main two-column layout */}
+      {/* Two-column layout */}
       <div
         style={{
           flex: 1,
@@ -67,7 +67,7 @@ export default async function Page() {
           overflow: 'hidden',
         }}
       >
-        {/* Left: Dashboard */}
+        {/* Left: live dashboard */}
         <main
           style={{
             padding: '1.5rem',
@@ -75,17 +75,11 @@ export default async function Page() {
             borderRight: '1px solid var(--color-border)',
           }}
         >
-          <Dashboard balances={balances} earnings={earnings} />
+          <LiveDashboard initial={{ balances, earnings }} />
         </main>
 
         {/* Right: Chat placeholder */}
-        <aside
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
+        <aside style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div
             style={{
               padding: '1rem 1.25rem',
@@ -96,13 +90,7 @@ export default async function Page() {
             }}
           >
             <span style={{ fontSize: '0.9rem' }}>💬</span>
-            <span
-              style={{
-                color: 'var(--color-text)',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
+            <span style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.9rem' }}>
               Money Talks
             </span>
           </div>
