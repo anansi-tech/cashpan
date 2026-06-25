@@ -146,20 +146,7 @@ function ChatMessage({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
-      {/* Proposal cards (assistant only) */}
-      {!isUser && proposalParts.map((part) => {
-        const callId = part['toolCallId'] as string;
-        return dismissed.has(callId) ? null : (
-          <ConfirmCard
-            key={callId}
-            proposal={part['output'] as Proposal}
-            onDismiss={() => onDismiss(callId)}
-            onSuccess={onSuccess}
-          />
-        );
-      })}
-
-      {/* Text bubble */}
+      {/* Text bubble first — gives context before the action card */}
       {text && (
         <div style={{
           maxWidth: '88%',
@@ -175,6 +162,19 @@ function ChatMessage({
           {text}
         </div>
       )}
+
+      {/* Proposal cards after text — user reads context first, then acts */}
+      {!isUser && proposalParts.map((part) => {
+        const callId = part['toolCallId'] as string;
+        return dismissed.has(callId) ? null : (
+          <ConfirmCard
+            key={callId}
+            proposal={part['output'] as Proposal}
+            onDismiss={() => onDismiss(callId)}
+            onSuccess={onSuccess}
+          />
+        );
+      })}
     </div>
   );
 }
