@@ -9,14 +9,38 @@ interface ConfirmCardProps {
   onDismiss: () => void;
 }
 
-const BLOCK_MESSAGES: Record<BlockReason, string> = {
-  not_a_payee: "That name isn't in your payee list. Add them to your PAYEES config to send to them.",
-  not_allowlisted: "That address isn't on your vault's allowlist yet. Add it with the CLI first.",
-  over_per_tx: 'That amount exceeds your per-transaction outflow cap.',
-  over_daily: "You've used most of your daily outflow cap. Not enough remaining for this move.",
-  insufficient_liquid: "Your spend pocket doesn't have enough SUI for this.",
-  no_savings: "Your savings pocket doesn't have enough to cover this topup.",
-};
+function blockMessage(proposal: Proposal, reason: BlockReason): string {
+  const label = proposal.action === 'send' ? `"${proposal.payeeLabel}"` : null;
+  const cap =
+    'outflowPerTxCapSui' in proposal
+      ? proposal.outflowPerTxCapSui
+      : 'perTxCapSui' in proposal
+      ? proposal.perTxCapSui
+      : null;
+  const dailyRemaining =
+    'outflowDailyRemainingSui' in proposal
+      ? proposal.outflowDailyRemainingSui
+      : 'dailyRemainingSui' in proposal
+      ? proposal.dailyRemainingSui
+      : null;
+  const liquid = 'liquidSui' in proposal ? proposal.liquidSui : null;
+  const savings = 'savingsSui' in proposal ? proposal.savingsSui : null;
+
+  switch (reason) {
+    case 'not_a_payee':
+      return `${label} isn't in your payee list. Add them to your PAYEES config to enable sends to them.`;
+    case 'not_allowlisted':
+      return `${label} is in your contacts but their address isn't on the vault's allowlist. Add it with the CLI before sending.`;
+    case 'over_per_tx':
+      return `Amount exceeds your per-transaction cap${cap ? ` (max ${cap} SUI)` : ''}.`;
+    case 'over_daily':
+      return `Daily cap almost exhausted.${dailyRemaining ? ` Only ${dailyRemaining} SUI remaining today` : ''} — try again next epoch.`;
+    case 'insufficient_liquid':
+      return `Spend pocket only has ${liquid ?? '?'} SUI — not enough for this.`;
+    case 'no_savings':
+      return `Savings pocket only has ${savings ?? '?'} SUI — not enough to top up that amount.`;
+  }
+}
 
 function actionLabel(proposal: Proposal): string {
   if (proposal.action === 'send') return `Send to ${proposal.payeeLabel}`;
@@ -111,7 +135,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
       {/* Block reason */}
       {isBlocked && (
         <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.55 }}>
-          {BLOCK_MESSAGES[proposal.blocked!]}
+          {blockMessage(proposal, proposal.blocked!)}
         </div>
       )}
 
@@ -170,9 +194,12 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
 
       {/* Buttons */}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
-        {!isBlocked && execState !== 'error' && (
+        {!isBlocked && (
           <button
-            onClick={handleConfirm}
+            onClick={() => {
+              if (execState === 'error') setExecState('idle');
+              else handleConfirm();
+            }}
             disabled={execState === 'pending'}
             style={{
               background: execState === 'pending' ? 'rgba(16,185,129,0.3)' : 'var(--color-savings)',
@@ -185,7 +212,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
               cursor: execState === 'pending' ? 'not-allowed' : 'pointer',
             }}
           >
-            {execState === 'pending' ? 'Confirming…' : 'Confirm'}
+            {execState === 'pending' ? 'Confirming…' : execState === 'error' ? 'Try again' : 'Confirm'}
           </button>
         )}
         <button
@@ -200,7 +227,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
             cursor: 'pointer',
           }}
         >
-          {execState === 'error' ? 'Close' : 'Cancel'}
+          Cancel
         </button>
       </div>
     </div>
