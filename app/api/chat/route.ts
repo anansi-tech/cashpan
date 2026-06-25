@@ -34,23 +34,38 @@ export async function POST(req: Request) {
     tools: {
       getBalances: tool({
         description:
-          'Get the current balances: liquid spend pocket, savings pocket value (principal + accrued interest), and total.',
+          'Get the current balances: liquid spend pocket, savings pocket value (principal + accrued interest), and total. All amounts are in SUI.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
           additionalProperties: false,
         }),
-        execute: async () => getBalances(),
+        execute: async () => {
+          const raw = await getBalances();
+          const m = (s: string) => (Number(s) / 1e9).toFixed(6);
+          return {
+            spendPocketSui: m(raw.liquid),
+            savingsPocketSui: m(raw.savingsValue),
+            totalSui: m(raw.total),
+            currentEpoch: raw.currentEpoch,
+          };
+        },
       }),
 
       getEarnings: tool({
-        description: 'Get accrued interest earned so far and the current APR in basis points per epoch.',
+        description: 'Get accrued interest earned so far (in SUI) and the yield rate in basis points per epoch.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
           additionalProperties: false,
         }),
-        execute: async () => getEarnings(),
+        execute: async () => {
+          const raw = await getEarnings();
+          return {
+            accruedSui: (Number(raw.accrued) / 1e9).toFixed(6),
+            rateBpsPerEpoch: raw.aprBps,
+          };
+        },
       }),
 
       getAgentActivity: tool({
@@ -66,18 +81,40 @@ export async function POST(req: Request) {
           },
           additionalProperties: false,
         }),
-        execute: async ({ limit }: { limit?: number }) => getAgentActivity(limit ?? 10),
+        execute: async ({ limit }: { limit?: number }) => {
+          const events = await getAgentActivity(limit ?? 10);
+          // amount fields are MIST; expose only the pre-formatted text to the model
+          return events.map(({ text, type, direction, epochStr, timestampMs }) => ({
+            text,
+            type,
+            direction,
+            epochStr,
+            timestampMs,
+          }));
+        },
       }),
 
       getConfig: tool({
         description:
-          'Get vault configuration: buffer target, rebalance band, per-tx and daily caps, payout address.',
+          'Get vault configuration: buffer target, rebalance band, per-tx and daily caps, payout address. All SUI amounts shown in SUI.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
           additionalProperties: false,
         }),
-        execute: async () => getConfig(),
+        execute: async () => {
+          const raw = await getConfig();
+          const m = (s: string) => (Number(s) / 1e9).toFixed(4);
+          return {
+            bufferSui: m(raw.buffer),
+            bandSui: m(raw.band),
+            perTxCapSui: m(raw.perTxCap),
+            dailyCapSui: m(raw.dailyCap),
+            outflowPerTxCapSui: m(raw.outflowPerTxCap),
+            outflowDailyCapSui: m(raw.outflowDailyCap),
+            payoutAddress: raw.payoutAddress,
+          };
+        },
       }),
     },
   });
