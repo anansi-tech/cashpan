@@ -2,44 +2,24 @@
  * scripts/send.ts — exercise the two send paths on testnet.
  *
  * Owner send (any recipient, no allowlist, no cap):
- *   tsx scripts/send.ts --owner --to 0xADDR --amount 50000000
+ *   tsx scripts/send.ts --owner --to 0xADDR --amount 10
  *
- * Agent send (recipient must be on owner-managed allowlist):
- *   tsx scripts/send.ts --agent --to 0xADDR --amount 50000000
+ * Agent send (recipient must be on the vault's allowlist):
+ *   tsx scripts/send.ts --agent --to 0xADDR --amount 10
  *
- * To add a payee to the allowlist first:
+ * Add a payee to the allowlist first:
  *   tsx scripts/send.ts --add-payee --to 0xADDR
  *
- * Prerequisites: .env populated by setup.ts (npm run setup).
+ * Amounts are human decimals (e.g. 10 = $10.00 at 6 decimals).
+ * Prerequisites: .env populated by npm run setup.
  */
 
 import "dotenv/config";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
-import { execSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
-
-function required(key: string): string {
-  const v = process.env[key];
-  if (!v) throw new Error(`Missing env var: ${key}`);
-  return v;
-}
-
-function ownerKeypair(): Ed25519Keypair {
-  const activeAddress = execSync("sui client active-address", { encoding: "utf8" }).trim();
-  const keystorePath = join(process.env.HOME ?? "/root", ".sui", "sui_config", "sui.keystore");
-  if (!existsSync(keystorePath)) throw new Error(`Keystore not found at ${keystorePath}`);
-  const keystore: string[] = JSON.parse(readFileSync(keystorePath, "utf8"));
-  for (const entry of keystore) {
-    const raw = Buffer.from(entry, "base64");
-    if (raw[0] !== 0x00) continue;
-    const kp = Ed25519Keypair.fromSecretKey(raw.slice(1, 33));
-    if (kp.getPublicKey().toSuiAddress() === activeAddress) return kp;
-  }
-  throw new Error(`No key matches active address ${activeAddress}`);
-}
+import { required, ownerKeypair } from "./script-helpers.js";
+import { humanToBase } from "../lib/coin-config.js";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -55,6 +35,7 @@ async function main() {
   const packageId = required("PACKAGE_ID");
   const vaultId = required("VAULT_ID");
   const coinType = required("COIN_TYPE");
+  const coinSymbol = process.env.COIN_SYMBOL ?? "coin";
   const ownerCapId = required("OWNER_CAP_ID");
 
   const client = new SuiJsonRpcClient({ url: rpcUrl });
@@ -84,8 +65,9 @@ async function main() {
   if (useOwner && useAgent) throw new Error("Pass only one of --owner or --agent");
 
   const amountIdx = args.indexOf("--amount");
-  if (amountIdx === -1 || !args[amountIdx + 1]) throw new Error("Pass --amount <mist>");
-  const amount = BigInt(args[amountIdx + 1]);
+  if (amountIdx === -1 || !args[amountIdx + 1]) throw new Error("Pass --amount <human>");
+  const amountHuman = args[amountIdx + 1];
+  const amount = humanToBase(amountHuman);
 
   if (useOwner) {
     const keypair = ownerKeypair();
@@ -100,7 +82,7 @@ async function main() {
         tx.pure.address(recipient),
       ],
     });
-    console.log(`Owner send ${amount} MIST to ${recipient}...`);
+    console.log(`Owner send $${amountHuman} ${coinSymbol} to ${recipient}...`);
     const result = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
@@ -126,7 +108,7 @@ async function main() {
         tx.pure.address(recipient),
       ],
     });
-    console.log(`Agent send ${amount} MIST to ${recipient}...`);
+    console.log(`Agent send $${amountHuman} ${coinSymbol} to ${recipient}...`);
     const result = await client.signAndExecuteTransaction({
       signer: keypair,
       transaction: tx,
