@@ -43,10 +43,15 @@ public struct YieldVenue<phantom T> has key {
 // ============ View helpers ============
 
 public fun rate_bps<T>(venue: &YieldVenue<T>): u64 { venue.rate_bps }
+
 public fun period_epochs<T>(venue: &YieldVenue<T>): u64 { venue.period_epochs }
+
 public fun reserve_balance<T>(venue: &YieldVenue<T>): u64 { balance::value(&venue.reserve) }
+
 public fun pool_balance<T>(venue: &YieldVenue<T>): u64 { balance::value(&venue.pool) }
+
 public fun position_principal(pos: &Position): u64 { pos.principal }
+
 public fun position_entry_epoch(pos: &Position): u64 { pos.entry_epoch }
 
 /// Current value of a position: principal + accrued interest.
@@ -59,7 +64,9 @@ public fun current_value<T>(venue: &YieldVenue<T>, pos: &Position, ctx: &TxConte
 
 fun accrued_interest(principal: u64, rate_bps: u64, elapsed: u64, period_epochs: u64): u64 {
     if (elapsed == 0 || principal == 0 || period_epochs == 0) return 0;
-    (principal * rate_bps * elapsed) / (10_000 * period_epochs)
+    let numerator = (principal as u128) * (rate_bps as u128) * (elapsed as u128);
+    let denominator = 10_000u128 * (period_epochs as u128);
+    (numerator / denominator) as u64
 }
 
 // ============ Setup ============
@@ -100,7 +107,12 @@ public fun extend_position<T>(
 ) {
     let current_epoch = ctx.epoch();
     let elapsed = current_epoch - position.entry_epoch;
-    let accrued = accrued_interest(position.principal, venue.rate_bps, elapsed, venue.period_epochs);
+    let accrued = accrued_interest(
+        position.principal,
+        venue.rate_bps,
+        elapsed,
+        venue.period_epochs,
+    );
 
     if (accrued > 0) {
         assert!(balance::value(&venue.reserve) >= accrued, EReserveInsufficient);
@@ -129,7 +141,12 @@ public fun withdraw<T>(
 ): Coin<T> {
     let current_epoch = ctx.epoch();
     let elapsed = current_epoch - position.entry_epoch;
-    let accrued = accrued_interest(position.principal, venue.rate_bps, elapsed, venue.period_epochs);
+    let accrued = accrued_interest(
+        position.principal,
+        venue.rate_bps,
+        elapsed,
+        venue.period_epochs,
+    );
     let total_value = position.principal + accrued;
 
     assert!(amount <= total_value, EWithdrawExceedsValue);

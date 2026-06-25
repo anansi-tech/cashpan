@@ -3,3 +3,7 @@ dist/
 .env
 *.env.local
 move/build/
+
+# next.js
+/.next/
+/out/
