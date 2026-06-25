@@ -125,18 +125,15 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
   const total = liquid + savingsValue;
   const fillPercent = total > 0 ? (savingsValue / total) * 100 : 0;
 
-  const savings = initial.balances;
-  const accrued = savingsValue - Number(initial.balances.savingsPrincipal);
+  // Accrued = live savings value minus the fixed principal
+  const principal = Number(initial.balances.savingsPrincipal);
+  const accrued = Math.max(0, savingsValue - principal);
   const accruedLabel = accrued > 0
     ? `+${(accrued / 1e9).toFixed(6)} earned`
     : undefined;
 
-  const earnings: Earnings = {
-    accrued: Math.max(0, accrued).toFixed(0),
-    aprBps: initial.earnings.aprBps,
-  };
-
-  const aprPercent = (Number(earnings.aprBps) / 100).toFixed(0);
+  const aprBps = Number(initial.earnings.aprBps);
+  const aprPercent = (aprBps / 100).toFixed(0);
   const accruedSui = (accrued / 1e9).toFixed(6);
   const totalSui = formatSui(total.toFixed(0), 4);
 
@@ -172,9 +169,9 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
       >
         <Stat label="Total" value={`${totalSui} SUI`} />
         <Divider />
-        <Stat label="Accrued" value={`${accruedSui} SUI`} color="var(--color-savings)" />
+        <Stat label="Earned" value={`${accruedSui} SUI`} color="var(--color-savings)" />
         <Divider />
-        <Stat label="APR" value={`${aprPercent}% / epoch`} />
+        <Stat label="Yield" value={`${aprBps} bps/epoch`} />
         <Divider />
         <Stat label="Epoch" value={`#${displayed.currentEpoch}`} />
       </div>

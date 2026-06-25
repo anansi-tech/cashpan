@@ -1,6 +1,7 @@
 import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
+import { ChatPanel } from '@/components/ChatPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,10 +15,11 @@ export default async function Page() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        height: '100vh',
         background: 'var(--color-bg)',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
       {/* Header */}
@@ -26,17 +28,17 @@ export default async function Page() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '1rem 1.5rem',
+          padding: '0.875rem 1.5rem',
           borderBottom: '1px solid var(--color-border)',
           flexShrink: 0,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-          <span style={{ fontSize: '1.25rem' }}>🍳</span>
+          <span style={{ fontSize: '1.15rem' }}>🍳</span>
           <span
             style={{
               fontFamily: 'var(--font-mono)',
-              fontSize: '1.1rem',
+              fontSize: '1.05rem',
               fontWeight: 700,
               color: 'var(--color-savings)',
               letterSpacing: '-0.02em',
@@ -57,64 +59,61 @@ export default async function Page() {
               boxShadow: '0 0 8px var(--color-savings)',
             }}
           />
-          <span style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>
+          <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>
             Sui testnet · epoch {balances.currentEpoch}
           </span>
         </div>
       </header>
 
-      {/* Two-column layout */}
-      <div
-        style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns: '1fr 400px',
-          overflow: 'hidden',
-        }}
-      >
+      {/* Two-column layout fills remaining height */}
+      <div className="dashboard-grid" style={{ flex: 1 }}>
         {/* Left: live dashboard + activity feed */}
         <main
           style={{
-            padding: '1.5rem',
+            padding: '1.25rem 1.5rem',
             overflowY: 'auto',
             borderRight: '1px solid var(--color-border)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0',
           }}
         >
           <LiveDashboard initial={{ balances, earnings }} />
           <ActivityFeed initial={activity} />
         </main>
 
-        {/* Right: Chat placeholder */}
-        <aside style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Right: Money Talks chat */}
+        <aside
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            minHeight: 0,
+          }}
+        >
           <div
             style={{
-              padding: '1rem 1.25rem',
+              padding: '0.875rem 1.25rem',
               borderBottom: '1px solid var(--color-border)',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
+              flexShrink: 0,
             }}
           >
-            <span style={{ fontSize: '0.9rem' }}>💬</span>
-            <span style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.9rem' }}>
+            <span style={{ fontSize: '0.85rem' }}>💬</span>
+            <span
+              style={{
+                color: 'var(--color-text)',
+                fontWeight: 600,
+                fontSize: '0.875rem',
+              }}
+            >
               Money Talks
             </span>
           </div>
 
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-muted)',
-              fontSize: '0.85rem',
-              textAlign: 'center',
-              padding: '2rem',
-            }}
-          >
-            Chat coming soon — ask anything about your balance, earnings, or what the agent&apos;s been up to.
-          </div>
+          <ChatPanel />
         </aside>
       </div>
     </div>

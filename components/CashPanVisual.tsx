@@ -26,6 +26,14 @@ export function CashPanVisual({ fillPercent, label }: CashPanVisualProps) {
         aria-label={`Savings pan ${fill.toFixed(0)}% full`}
       >
         <defs>
+          <style>{`
+            @keyframes steam-rise {
+              0%   { opacity: 0;   transform: translateY(0)     scaleX(1);   }
+              25%  { opacity: 0.6;                                            }
+              100% { opacity: 0;   transform: translateY(-26px) scaleX(0.35); }
+            }
+          `}</style>
+
           {/* Clip path matches the pan interior */}
           <clipPath id="pan-clip">
             <path d="M 24 54 L 12 160 Q 160 176 308 160 L 296 54 Q 160 40 24 54 Z" />
@@ -136,6 +144,18 @@ export function CashPanVisual({ fillPercent, label }: CashPanVisualProps) {
           {/* Handle end cap */}
           <circle cx="370" cy="92" r="8" fill="#1e2d3d" stroke="#2d4a63" strokeWidth="2" />
         </g>
+
+        {/* ── Steam wisps above rim (only when there's liquid) ── */}
+        {fill > 3 && (
+          <g style={{ opacity: 0.85 }}>
+            <ellipse cx="118" cy="42" rx="8" ry="3.5" fill="rgba(52,211,153,0.28)"
+              style={{ animation: 'steam-rise 2.8s ease-out 0s infinite', transformOrigin: '118px 42px' }} />
+            <ellipse cx="160" cy="38" rx="6" ry="2.8" fill="rgba(52,211,153,0.22)"
+              style={{ animation: 'steam-rise 2.8s ease-out 1.1s infinite', transformOrigin: '160px 38px' }} />
+            <ellipse cx="200" cy="41" rx="7" ry="3.2" fill="rgba(52,211,153,0.26)"
+              style={{ animation: 'steam-rise 2.8s ease-out 0.55s infinite', transformOrigin: '200px 41px' }} />
+          </g>
+        )}
 
         {/* ── Label inside pan ── */}
         {label && fill < 85 && (

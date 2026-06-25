@@ -17,8 +17,44 @@
   --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
 }
 
+@keyframes cashpan-pulse {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(0.75);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes savings-glow {
+  0%, 100% { border-color: rgba(16, 185, 129, 0.22); box-shadow: none; }
+  50%       { border-color: rgba(16, 185, 129, 0.4);  box-shadow: 0 0 18px rgba(16, 185, 129, 0.08); }
+}
+
 * {
   box-sizing: border-box;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .dashboard-grid > aside {
+    height: 520px;
+    border-top: 1px solid var(--color-border);
+    border-right: none !important;
+  }
 }
 
 html,
