@@ -4,7 +4,7 @@
  */
 
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { generateNonce, generateRandomness, genAddressSeed } from '@mysten/sui/zklogin';
+import { generateNonce, generateRandomness, genAddressSeed, type ZkLoginSignatureInputs } from '@mysten/sui/zklogin';
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 
 const KEYS = {
@@ -145,7 +145,7 @@ export function getEphemeralKeypair(): Ed25519Keypair | null {
   return key ? Ed25519Keypair.fromSecretKey(key) : null;
 }
 
-export function getZkProof(): unknown {
+export function getZkProof(): Omit<ZkLoginSignatureInputs, 'addressSeed'> | null {
   const raw = sessionStorage.getItem(KEYS.ZK_PROOF);
   return raw ? JSON.parse(raw) : null;
 }
