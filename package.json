@@ -11,6 +11,7 @@
     "setup": "tsx scripts/setup.ts",
     "drain": "tsx scripts/drain.ts",
     "deposit": "tsx scripts/deposit.ts",
+    "create-vault": "tsx scripts/create-vault.ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "dependencies": {
