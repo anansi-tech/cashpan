@@ -67,11 +67,9 @@ fun fund_liquid(s: &mut Scenario, amount: u64) {
     ts::next_tx(s, OWNER);
     {
         let mut vault: Vault<SUI> = ts::take_shared(s);
-        let owner_cap: OwnerCap = ts::take_from_sender(s);
         let coins = coin::mint_for_testing<SUI>(amount, ts::ctx(s));
-        vault::deposit(&owner_cap, &mut vault, coins);
+        vault::deposit(&mut vault, coins);
         ts::return_shared(vault);
-        ts::return_to_sender(s, owner_cap);
     };
 }
 
@@ -143,6 +141,42 @@ fun test_withdraw_reduces_liquid() {
         ts::return_shared(vault);
         ts::return_to_sender(&s, owner_cap);
     };
+    ts::end(s);
+}
+
+// ============ Permissionless deposit ============
+
+#[test]
+fun test_deposit_from_non_owner_succeeds() {
+    let mut s = setup();
+    // STRANGER deposits without holding OwnerCap — must succeed.
+    ts::next_tx(&mut s, STRANGER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let coins = coin::mint_for_testing<SUI>(500, ts::ctx(&mut s));
+        vault::deposit(&mut vault, coins);
+        assert!(vault::liquid_balance(&vault) == 500, 0);
+        ts::return_shared(vault);
+    };
+    ts::end(s);
+}
+
+#[test]
+fun test_deposit_emits_deposit_event() {
+    let mut s = setup();
+    let effects = ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let coins = coin::mint_for_testing<SUI>(777, ts::ctx(&mut s));
+        vault::deposit(&mut vault, coins);
+        ts::return_shared(vault);
+    };
+    // The previous next_tx (setup's last tx) had 0 user events.
+    // After deposit, the new tx emits DepositEvent.
+    let effects2 = ts::next_tx(&mut s, OWNER);
+    assert!(ts::num_user_events(&effects2) == 1, 0);
+    // Suppress unused variable warning.
+    let _ = effects;
     ts::end(s);
 }
 

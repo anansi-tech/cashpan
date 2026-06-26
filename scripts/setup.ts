@@ -268,7 +268,7 @@ async function main() {
   depositTx.moveCall({
     target: `${packageId}::vault::deposit`,
     typeArguments: [COIN_TYPE],
-    arguments: [depositTx.object(ownerCapId), depositTx.object(vaultId), depositCoin],
+    arguments: [depositTx.object(vaultId), depositCoin],
   });
   const depositResult = await client.signAndExecuteTransaction({
     signer: keypair,

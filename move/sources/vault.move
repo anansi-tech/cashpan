@@ -89,6 +89,12 @@ public struct SendEvent has copy, drop {
     by_agent: bool,
 }
 
+public struct DepositEvent has copy, drop {
+    vault_id: ID,
+    amount: u64,
+    liquid_after: u64,
+}
+
 public struct RebalanceEvent has copy, drop {
     vault_id: ID,
     direction: u8,
@@ -175,10 +181,16 @@ public fun revoke<T>(owner_cap: &OwnerCap, vault: &mut Vault<T>) {
     vault.agent_nonce = vault.agent_nonce + 1;
 }
 
-/// Deposit coins into the liquid bucket. Owner only.
-public fun deposit<T>(owner_cap: &OwnerCap, vault: &mut Vault<T>, coin: Coin<T>) {
-    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+/// Deposit coins into the liquid bucket. Permissionless — anyone can add funds.
+/// Emits DepositEvent so Block 3's event listener can credit the depositor.
+public fun deposit<T>(vault: &mut Vault<T>, coin: Coin<T>) {
+    let amount = coin::value(&coin);
     balance::join(&mut vault.liquid, coin::into_balance(coin));
+    event::emit(DepositEvent {
+        vault_id: object::id(vault),
+        amount,
+        liquid_after: balance::value(&vault.liquid),
+    });
 }
 
 /// Withdraw from the liquid bucket. Owner only — not callable by AgentCap.

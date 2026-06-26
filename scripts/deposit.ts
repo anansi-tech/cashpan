@@ -1,5 +1,7 @@
 /**
- * scripts/deposit.ts — add stablecoin to the vault's liquid pocket (owner only).
+ * scripts/deposit.ts — add stablecoin to the vault's liquid pocket.
+ *
+ * deposit() is now permissionless — no OwnerCap required.
  *
  *   tsx scripts/deposit.ts --amount 50    # deposit $50 (human decimal)
  *
@@ -24,7 +26,6 @@ async function main() {
   const vaultId = required("VAULT_ID");
   const coinType = required("COIN_TYPE");
   const coinSymbol = process.env.COIN_SYMBOL ?? "coin";
-  const ownerCapId = required("OWNER_CAP_ID");
 
   const client = new SuiJsonRpcClient({ url: rpcUrl });
   const keypair = ownerKeypair();
@@ -35,7 +36,7 @@ async function main() {
   tx.moveCall({
     target: `${packageId}::vault::deposit`,
     typeArguments: [coinType],
-    arguments: [tx.object(ownerCapId), tx.object(vaultId), coin],
+    arguments: [tx.object(vaultId), coin],
   });
 
   console.log(`Depositing $${amountHuman} ${coinSymbol} into liquid...`);
