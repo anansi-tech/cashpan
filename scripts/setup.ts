@@ -91,7 +91,8 @@ function patchEnv(
 
 /**
  * Clean Move artifacts that block a fresh publish:
- *   Move.lock — regenerated each time; stale lock blocks republish
+ *   Move.lock    — regenerated each time; stale lock blocks republish
+ *   Published.toml — records prior publication addresses; must be cleared for a new deploy
  *   published-at in Move.toml — written by `sui client publish`; must be absent for a new package
  */
 function resetMovePackage(moveDir: string): void {
@@ -100,6 +101,11 @@ function resetMovePackage(moveDir: string): void {
     unlinkSync(lockPath);
     console.log("   Deleted Move.lock");
   }
+
+  // Reset Published.toml to an empty header (the CLI writes fresh entries after publish)
+  const pubPath = join(moveDir, "Published.toml");
+  writeFileSync(pubPath, "# Managed by setup.ts — regenerated on each npm run setup\n");
+  console.log("   Reset Published.toml");
 
   const tomlPath = join(moveDir, "Move.toml");
   const toml = readFileSync(tomlPath, "utf8");
