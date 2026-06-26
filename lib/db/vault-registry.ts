@@ -69,16 +69,6 @@ export async function listVaults(): Promise<VaultRecord[]> {
   return getModel().find({}).lean() as Promise<VaultRecord[]>;
 }
 
-/**
- * Resolve the active vault by identity key, or fall back to the first registered vault.
- * Block 1: identityKey comes from the ?user= param or x-cashpan-user header.
- * Block 2: swap the caller (resolveVault) to extract identityKey from zkLogin session.
- */
-export async function getActiveVault(identityKey?: string): Promise<VaultRecord | null> {
-  if (identityKey) return getByIdentity(identityKey);
-
-  // Fallback: first registered vault (single-user / no selector set)
-  await connectDB();
-  const doc = await getModel().findOne({}).sort({ createdAt: 1 }).lean();
-  return doc as VaultRecord | null;
+export async function getActiveVault(identityKey: string): Promise<VaultRecord | null> {
+  return getByIdentity(identityKey);
 }
