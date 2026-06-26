@@ -34,13 +34,13 @@ function blockMessage(proposal: Proposal, reason: BlockReason): string {
     case 'not_allowlisted':
       return `${label} is in your contacts but their address isn't on the vault's allowlist. Add it with the CLI before sending.`;
     case 'over_per_tx':
-      return `Amount exceeds your per-transaction cap${cap ? ` (max ${cap} SUI)` : ''}.`;
+      return `Amount exceeds your per-transaction cap${cap ? ` (max ${cap} ${COIN_SYM})` : ''}.`;
     case 'over_daily':
-      return `Daily cap almost exhausted.${dailyRemaining ? ` Only ${dailyRemaining} SUI remaining today` : ''} — try again next epoch.`;
+      return `Daily cap almost exhausted.${dailyRemaining ? ` Only ${dailyRemaining} ${COIN_SYM} remaining today` : ''} — try again next epoch.`;
     case 'insufficient_liquid':
-      return `Spend pocket only has ${liquid ?? '?'} SUI — not enough for this.`;
+      return `Spend pocket only has ${liquid ?? '?'} ${COIN_SYM} — not enough for this.`;
     case 'no_savings':
-      return `Savings pocket only has ${savings ?? '?'} SUI — not enough to top up that amount.`;
+      return `Savings pocket only has ${savings ?? '?'} ${COIN_SYM} — not enough to top up that amount.`;
   }
 }
 
@@ -156,7 +156,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
                   dim
                 />
               )}
-              <ProposalDetail label="Daily outflow remaining" value={`${proposal.outflowDailyRemainingSui} SUI`} dim />
+              <ProposalDetail label="Daily outflow remaining" value={`${proposal.outflowDailyRemainingSui} ${COIN_SYM}`} dim />
             </>
           )}
 
@@ -167,21 +167,21 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
                 value={`${proposal.payoutAddress.slice(0, 8)}…${proposal.payoutAddress.slice(-6)}`}
                 dim
               />
-              <ProposalDetail label="Daily outflow remaining" value={`${proposal.outflowDailyRemainingSui} SUI`} dim />
+              <ProposalDetail label="Daily outflow remaining" value={`${proposal.outflowDailyRemainingSui} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'sweep' && (
             <>
-              <ProposalDetail label="From spend pocket" value={`${proposal.liquidSui} SUI`} dim />
-              <ProposalDetail label="Daily cap remaining" value={`${proposal.dailyRemainingSui} SUI`} dim />
+              <ProposalDetail label="From spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Daily cap remaining" value={`${proposal.dailyRemainingSui} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'topup' && (
             <>
-              <ProposalDetail label="From savings" value={`${proposal.savingsSui} SUI`} dim />
-              <ProposalDetail label="Daily cap remaining" value={`${proposal.dailyRemainingSui} SUI`} dim />
+              <ProposalDetail label="From savings" value={`${proposal.savingsSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Daily cap remaining" value={`${proposal.dailyRemainingSui} ${COIN_SYM}`} dim />
             </>
           )}
         </div>

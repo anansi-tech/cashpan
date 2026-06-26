@@ -5,6 +5,8 @@ import { PocketCard } from './PocketCard';
 import { formatSui } from '@/lib/utils';
 import type { Balances, Earnings } from '@/lib/read-layer';
 
+const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
+
 interface DashboardProps {
   balances: Balances;
   earnings: Earnings;
@@ -53,9 +55,9 @@ export function Dashboard({ balances, earnings }: DashboardProps) {
           alignItems: 'center',
         }}
       >
-        <Stat label="Total" value={`${totalSui} SUI`} />
+        <Stat label="Total" value={`${totalSui} ${COIN_SYM}`} />
         <div style={{ width: '1px', height: '2rem', background: 'var(--color-border)' }} />
-        <Stat label="Accrued interest" value={`${accruedSui} SUI`} color="var(--color-savings)" />
+        <Stat label="Accrued interest" value={`${accruedSui} ${COIN_SYM}`} color="var(--color-savings)" />
         <div style={{ width: '1px', height: '2rem', background: 'var(--color-border)' }} />
         <Stat label="APR" value={`${aprPercent}% / epoch`} />
         <div style={{ width: '1px', height: '2rem', background: 'var(--color-border)' }} />
@@ -73,7 +75,7 @@ export function Dashboard({ balances, earnings }: DashboardProps) {
       >
         <CashPanVisual
           fillPercent={fillPercent}
-          label={`${formatSui(balances.savingsValue, 4)} SUI`}
+          label={`${formatSui(balances.savingsValue, 4)} ${COIN_SYM}`}
         />
       </div>
     </div>

@@ -15,6 +15,7 @@ import { readVaultState } from "./sense.js";
 import { decide } from "./decide.js";
 import { act } from "./act.js";
 import type { AgentConfig } from "./types.js";
+import { humanToBase } from "../lib/coin-config.js";
 
 function loadConfig(): AgentConfig {
   const required = [
@@ -40,8 +41,9 @@ function loadConfig(): AgentConfig {
     agentCapId: process.env.AGENT_CAP_ID!,
     agentPrivateKey: process.env.AGENT_PRIVATE_KEY!,
     coinType: process.env.COIN_TYPE!,
-    buffer: BigInt(process.env.BUFFER!),
-    band: BigInt(process.env.BAND!),
+    // BUFFER and BAND are human decimals (e.g. "50" = $50); convert to base units
+    buffer: humanToBase(process.env.BUFFER!),
+    band: humanToBase(process.env.BAND!),
     intervalMs: parseInt(process.env.INTERVAL_MS ?? "300000", 10),
   };
 }
