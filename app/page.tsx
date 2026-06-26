@@ -1,28 +1,41 @@
+import { cookies } from 'next/headers';
 import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { ChatPanel } from '@/components/ChatPanel';
-import { UserSwitcher } from '@/components/UserSwitcher';
+import { SignIn } from '@/components/SignIn';
+import { SignOutButton } from '@/components/SignOutButton';
 
 export const dynamic = 'force-dynamic';
 
-// Next.js 15: searchParams is a Promise in server components.
-export default async function Page({
-  searchParams,
-}: {
-  searchParams: Promise<{ user?: string }>;
-}) {
-  const { user } = await searchParams;
-  const vault = await getActiveVault(user);
+export default async function Page() {
+  const cookieStore = await cookies();
+  const sub = cookieStore.get('cashpan-sub')?.value;
+
+  if (!sub) return <SignIn />;
+
+  const vault = await getActiveVault(sub);
 
   if (!vault) {
+    // ProvisionVault (Task 4) renders here. Placeholder until then.
     return (
-      <div style={{ padding: '2rem', color: 'var(--color-muted)', fontFamily: 'var(--font-mono)' }}>
-        No vault registered. Run:{' '}
-        <code style={{ color: 'var(--color-savings)' }}>
-          npm run create-vault -- --identity alice
-        </code>
+      <div
+        style={{
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--color-bg)',
+          fontFamily: 'var(--font-mono)',
+          gap: '1rem',
+        }}
+      >
+        <span style={{ fontSize: '2rem' }}>🍳</span>
+        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: 0 }}>
+          Setting up your vault…
+        </p>
       </div>
     );
   }
@@ -72,8 +85,7 @@ export default async function Page({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {/* Dev user switcher — Block 1 only; removed in Block 2 when zkLogin lands */}
-          <UserSwitcher currentUser={vault.identityKey} />
+          <SignOutButton name={vault.payoutAddress.slice(0, 8) + '…'} />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span
@@ -147,3 +159,4 @@ export default async function Page({
     </div>
   );
 }
+

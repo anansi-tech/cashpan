@@ -7,3 +7,4 @@ move/build/
 # next.js
 /.next/
 /out/
+*.tsbuildinfo
