@@ -17,32 +17,14 @@ interface ConfirmCardProps {
 
 function blockMessage(proposal: Proposal, reason: BlockReason): string {
   const label = proposal.action === 'send' ? `"${proposal.payeeLabel}"` : null;
-  const cap =
-    'outflowPerTxCapSui' in proposal
-      ? proposal.outflowPerTxCapSui
-      : 'perTxCapSui' in proposal
-      ? proposal.perTxCapSui
-      : null;
-  const dailyRemaining =
-    'outflowDailyRemainingSui' in proposal
-      ? proposal.outflowDailyRemainingSui
-      : 'dailyRemainingSui' in proposal
-      ? proposal.dailyRemainingSui
-      : null;
-  const liquid = 'liquidSui' in proposal ? proposal.liquidSui : null;
+  const liquid = proposal.liquidSui;
   const savings = 'savingsSui' in proposal ? proposal.savingsSui : null;
 
   switch (reason) {
     case 'not_a_payee':
       return `${label} isn't in your payee list. Add them to your PAYEES config to enable sends to them.`;
-    case 'not_allowlisted':
-      return `${label} is in your contacts but their address isn't on the vault's allowlist. Add it with the CLI before sending.`;
-    case 'over_per_tx':
-      return `Amount exceeds your per-transaction cap${cap ? ` (max ${cap} ${COIN_SYM})` : ''}.`;
-    case 'over_daily':
-      return `Daily cap almost exhausted.${dailyRemaining ? ` Only ${dailyRemaining} ${COIN_SYM} remaining today` : ''} — try again next epoch.`;
     case 'insufficient_liquid':
-      return `Spend pocket only has ${liquid ?? '?'} ${COIN_SYM} — not enough for this.`;
+      return `Spend pocket only has ${liquid} ${COIN_SYM} — not enough for this.`;
     case 'no_savings':
       return `Savings pocket only has ${savings ?? '?'} ${COIN_SYM} — not enough to top up that amount.`;
   }
@@ -155,7 +137,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
                   dim
                 />
               )}
-              <ProposalDetail label="Daily outflow remaining" value={`${proposal.outflowDailyRemainingSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
             </>
           )}
 
@@ -166,21 +148,21 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
                 value={`${proposal.payoutAddress.slice(0, 8)}…${proposal.payoutAddress.slice(-6)}`}
                 dim
               />
-              <ProposalDetail label="Daily outflow remaining" value={`${proposal.outflowDailyRemainingSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'sweep' && (
             <>
-              <ProposalDetail label="From spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Daily cap remaining" value={`${proposal.dailyRemainingSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Savings" value={`${proposal.savingsSui} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'topup' && (
             <>
-              <ProposalDetail label="From savings" value={`${proposal.savingsSui} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Daily cap remaining" value={`${proposal.dailyRemainingSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Savings" value={`${proposal.savingsSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
             </>
           )}
         </div>

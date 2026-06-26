@@ -4,13 +4,15 @@
  * These functions read chain state and validate intent.
  * INVARIANT: nothing here signs or submits a transaction.
  * grep this file for signAndExecuteTransaction, Transaction → none.
+ *
+ * Block 4: owner verbs are unrestricted on-chain. No cap checks here — only
+ * affordability (can the vault actually cover the amount?). The confirm tap is the guardrail.
  */
 
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { humanToBase, baseToHuman } from './coin-config';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
-// VENUE_ID is shared across all vaults (single deployment).
 const VENUE_ID = process.env.VENUE_ID ?? '';
 
 function makeClient(): SuiJsonRpcClient {
@@ -39,9 +41,6 @@ const mistToSui = (base: bigint) => baseToHuman(base, 6);
 
 export type BlockReason =
   | 'not_a_payee'
-  | 'not_allowlisted'
-  | 'over_per_tx'
-  | 'over_daily'
   | 'insufficient_liquid'
   | 'no_savings';
 
@@ -52,8 +51,6 @@ export interface SendProposal {
   payeeLabel: string;
   recipient?: string;
   liquidSui: string;
-  outflowPerTxCapSui: string;
-  outflowDailyRemainingSui: string;
   blocked?: BlockReason;
 }
 
@@ -63,8 +60,6 @@ export interface WithdrawToMeProposal {
   amountSui: string;
   payoutAddress: string;
   liquidSui: string;
-  outflowPerTxCapSui: string;
-  outflowDailyRemainingSui: string;
   blocked?: BlockReason;
 }
 
@@ -74,8 +69,6 @@ export interface SweepProposal {
   amountSui: string;
   liquidSui: string;
   savingsSui: string;
-  perTxCapSui: string;
-  dailyRemainingSui: string;
   blocked?: BlockReason;
 }
 
@@ -85,8 +78,6 @@ export interface TopupProposal {
   amountSui: string;
   savingsSui: string;
   liquidSui: string;
-  perTxCapSui: string;
-  dailyRemainingSui: string;
   blocked?: BlockReason;
 }
 
@@ -97,14 +88,7 @@ export type Proposal = SendProposal | WithdrawToMeProposal | SweepProposal | Top
 interface VaultState {
   liquid: bigint;
   savingsValue: bigint;
-  perTxCap: bigint;
-  dailyCap: bigint;
-  effectiveDailySpent: bigint;
   payoutAddress: string;
-  outflowPerTxCap: bigint;
-  outflowDailyCap: bigint;
-  effectiveOutflowDailySpent: bigint;
-  allowlist: Set<string>;
 }
 
 async function fetchVaultState(vaultId: string): Promise<VaultState> {
@@ -123,23 +107,7 @@ async function fetchVaultState(vaultId: string): Promise<VaultState> {
   const currentEpoch = BigInt(systemState.epoch);
 
   const liquid = readBalance(vf.liquid);
-  const perTxCap = BigInt(String(vf.per_tx_cap ?? '0'));
-  const dailyCap = BigInt(String(vf.daily_cap ?? '0'));
-  const dailySpent = BigInt(String(vf.daily_spent ?? '0'));
-  const lastResetEpoch = BigInt(String(vf.last_reset_epoch ?? '0'));
   const payoutAddress = String(vf.payout_address ?? '');
-  const outflowPerTxCap = BigInt(String(vf.outflow_per_tx_cap ?? '0'));
-  const outflowDailyCap = BigInt(String(vf.outflow_daily_cap ?? '0'));
-  const outflowDailySpent = BigInt(String(vf.outflow_daily_spent ?? '0'));
-
-  // VecSet<address> serializes as {type: "...", fields: {contents: ["0x...", ...]}}
-  const allowlistObj = vf.allowlist as { fields?: { contents?: string[] }; contents?: string[] } | null;
-  const allowlistAddresses = allowlistObj?.fields?.contents ?? allowlistObj?.contents ?? [];
-
-  // Epoch reset: on-chain resets daily spend when epoch advances
-  const epochReset = currentEpoch > lastResetEpoch;
-  const effectiveDailySpent = epochReset ? 0n : dailySpent;
-  const effectiveOutflowDailySpent = epochReset ? 0n : outflowDailySpent;
 
   // Savings value mirrors computeCurrentValue in read-layer.ts
   const rateBps = BigInt(venf.rate_bps ?? '0');
@@ -163,18 +131,7 @@ async function fetchVaultState(vaultId: string): Promise<VaultState> {
     }
   }
 
-  return {
-    liquid,
-    savingsValue,
-    perTxCap,
-    dailyCap,
-    effectiveDailySpent,
-    payoutAddress,
-    outflowPerTxCap,
-    outflowDailyCap,
-    effectiveOutflowDailySpent,
-    allowlist: new Set(allowlistAddresses),
-  };
+  return { liquid, savingsValue, payoutAddress };
 }
 
 // ─── Proposal functions ───────────────────────────────────────────────────────
@@ -195,14 +152,9 @@ export async function proposeSend(
     payeeLabel,
     recipient,
     liquidSui: mistToSui(vault.liquid),
-    outflowPerTxCapSui: mistToSui(vault.outflowPerTxCap),
-    outflowDailyRemainingSui: mistToSui(vault.outflowDailyCap - vault.effectiveOutflowDailySpent),
   };
 
   if (!recipient) return { ...base, recipient: undefined, blocked: 'not_a_payee' };
-  if (!vault.allowlist.has(recipient)) return { ...base, blocked: 'not_allowlisted' };
-  if (amountMist > vault.outflowPerTxCap) return { ...base, blocked: 'over_per_tx' };
-  if (vault.effectiveOutflowDailySpent + amountMist > vault.outflowDailyCap) return { ...base, blocked: 'over_daily' };
   if (vault.liquid < amountMist) return { ...base, blocked: 'insufficient_liquid' };
 
   return base;
@@ -218,12 +170,8 @@ export async function proposeWithdrawToMe(amountSuiStr: string, vaultId: string)
     amountSui: mistToSui(amountMist),
     payoutAddress: vault.payoutAddress,
     liquidSui: mistToSui(vault.liquid),
-    outflowPerTxCapSui: mistToSui(vault.outflowPerTxCap),
-    outflowDailyRemainingSui: mistToSui(vault.outflowDailyCap - vault.effectiveOutflowDailySpent),
   };
 
-  if (amountMist > vault.outflowPerTxCap) return { ...base, blocked: 'over_per_tx' };
-  if (vault.effectiveOutflowDailySpent + amountMist > vault.outflowDailyCap) return { ...base, blocked: 'over_daily' };
   if (vault.liquid < amountMist) return { ...base, blocked: 'insufficient_liquid' };
 
   return base;
@@ -231,15 +179,8 @@ export async function proposeWithdrawToMe(amountSuiStr: string, vaultId: string)
 
 export async function proposeSweep(amountSuiStr: string | undefined, vaultId: string): Promise<SweepProposal> {
   const vault = await fetchVaultState(vaultId);
-  let amountMist: bigint;
-  if (amountSuiStr) {
-    amountMist = suiToMist(amountSuiStr);
-  } else {
-    // Default: all liquid up to per-tx cap
-    amountMist = vault.liquid < vault.perTxCap ? vault.liquid : vault.perTxCap;
-  }
-
-  const dailyRemaining = vault.dailyCap - vault.effectiveDailySpent;
+  // If no amount specified, sweep all available liquid
+  const amountMist = amountSuiStr ? suiToMist(amountSuiStr) : vault.liquid;
 
   const base: SweepProposal = {
     action: 'sweep',
@@ -247,12 +188,8 @@ export async function proposeSweep(amountSuiStr: string | undefined, vaultId: st
     amountSui: mistToSui(amountMist),
     liquidSui: mistToSui(vault.liquid),
     savingsSui: mistToSui(vault.savingsValue),
-    perTxCapSui: mistToSui(vault.perTxCap),
-    dailyRemainingSui: mistToSui(dailyRemaining),
   };
 
-  if (amountMist > vault.perTxCap) return { ...base, blocked: 'over_per_tx' };
-  if (vault.effectiveDailySpent + amountMist > vault.dailyCap) return { ...base, blocked: 'over_daily' };
   if (vault.liquid < amountMist) return { ...base, blocked: 'insufficient_liquid' };
 
   return base;
@@ -261,7 +198,6 @@ export async function proposeSweep(amountSuiStr: string | undefined, vaultId: st
 export async function proposeTopup(amountSuiStr: string, vaultId: string): Promise<TopupProposal> {
   const vault = await fetchVaultState(vaultId);
   const amountMist = suiToMist(amountSuiStr);
-  const dailyRemaining = vault.dailyCap - vault.effectiveDailySpent;
 
   const base: TopupProposal = {
     action: 'topup',
@@ -269,12 +205,8 @@ export async function proposeTopup(amountSuiStr: string, vaultId: string): Promi
     amountSui: mistToSui(amountMist),
     savingsSui: mistToSui(vault.savingsValue),
     liquidSui: mistToSui(vault.liquid),
-    perTxCapSui: mistToSui(vault.perTxCap),
-    dailyRemainingSui: mistToSui(dailyRemaining),
   };
 
-  if (amountMist > vault.perTxCap) return { ...base, blocked: 'over_per_tx' };
-  if (vault.effectiveDailySpent + amountMist > vault.dailyCap) return { ...base, blocked: 'over_daily' };
   if (vault.savingsValue < amountMist) return { ...base, blocked: 'no_savings' };
 
   return base;
