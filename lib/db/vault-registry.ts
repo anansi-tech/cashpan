@@ -53,7 +53,7 @@ export async function registerVault(record: Omit<VaultRecord, 'createdAt' | 'age
   const doc = await VaultModel.findOneAndUpdate(
     { identityKey: record.identityKey },
     { $set: record },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
   );
   return doc!.toObject();
 }
