@@ -36,3 +36,13 @@ public fun mint(
 ) {
     coin::mint_and_transfer(cap, amount, recipient, ctx);
 }
+
+/// Mint `amount` base units of TEST_USD and return the coin (composable in PTBs).
+/// Use this to chain mint + deposit in one transaction (e.g. fund-vault.ts).
+public fun mint_coin(
+    cap: &mut coin::TreasuryCap<TEST_USD>,
+    amount: u64,
+    ctx: &mut TxContext,
+): coin::Coin<TEST_USD> {
+    coin::mint(cap, amount, ctx)
+}
