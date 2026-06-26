@@ -10,12 +10,18 @@
  * If adding zkLogin requires touching any other file, Block 1 was wrong.
  */
 
-import { getActiveVault, type VaultRecord } from './db/vault-registry.js';
+import { getActiveVault, type VaultRecord } from './db/vault-registry';
 
 export type { VaultRecord };
 
+/**
+ * Block 1: extracts identityKey from ?user= param or x-cashpan-user header.
+ * Block 2: swap body to extract sub from zkLogin session — signature unchanged.
+ */
 export async function resolveVault(req: Request): Promise<VaultRecord> {
-  const vault = await getActiveVault(req);
+  const url = new URL(req.url);
+  const identityKey = url.searchParams.get('user') ?? req.headers.get('x-cashpan-user') ?? undefined;
+  const vault = await getActiveVault(identityKey);
   if (!vault) throw new Error('No vault registered. Run: npm run create-vault -- --identity <key>');
   return vault;
 }

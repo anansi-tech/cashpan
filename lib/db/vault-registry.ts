@@ -10,7 +10,7 @@
  */
 
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { connectDB } from './connection.js';
+import { connectDB } from './connection';
 
 export interface VaultRecord {
   identityKey: string;
@@ -68,17 +68,11 @@ export async function listVaults(): Promise<VaultRecord[]> {
 }
 
 /**
- * Resolve the active vault from a request context.
- * Block 1: reads `x-cashpan-user` header or `?user=` query param.
- * Falls back to the first registered vault (single-user compat).
- * Block 2: replace body with zkLogin session → sub → lookup.
+ * Resolve the active vault by identity key, or fall back to the first registered vault.
+ * Block 1: identityKey comes from the ?user= param or x-cashpan-user header.
+ * Block 2: swap the caller (resolveVault) to extract identityKey from zkLogin session.
  */
-export async function getActiveVault(req: Request): Promise<VaultRecord | null> {
-  const url = new URL(req.url);
-  const userParam = url.searchParams.get('user');
-  const userHeader = req.headers.get('x-cashpan-user');
-  const identityKey = userParam ?? userHeader;
-
+export async function getActiveVault(identityKey?: string): Promise<VaultRecord | null> {
   if (identityKey) return getByIdentity(identityKey);
 
   // Fallback: first registered vault (single-user / no selector set)

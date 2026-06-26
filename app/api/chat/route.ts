@@ -20,6 +20,7 @@ import {
   proposeTopup,
   getPayeeMap,
 } from '@/lib/propose';
+import { resolveVault } from '@/lib/resolve-vault';
 
 function buildSystemPrompt(): string {
   const payees = getPayeeMap();
@@ -63,7 +64,12 @@ Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak 
 }
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  // Clone the request so we can both parse JSON and pass req to resolveVault
+  // (resolveVault only reads headers/URL, so the original is fine for it).
+  const [reqForVault, reqForBody] = [req, req.clone()];
+  const { messages } = await reqForBody.json();
+  const vault = await resolveVault(reqForVault);
+  const { vaultId } = vault;
 
   const result = streamText({
     model: openai('gpt-4o-mini'),
@@ -74,14 +80,14 @@ export async function POST(req: Request) {
       // ── 3a reads ──────────────────────────────────────────────────────────
 
       getBalances: tool({
-        description: 'Get current balances (spend pocket, savings pocket, total) in SUI.',
+        description: 'Get current balances (spend pocket, savings pocket, total).',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
           additionalProperties: false,
         }),
         execute: async () => {
-          const raw = await getBalances();
+          const raw = await getBalances(vaultId);
           const h = (s: string) => baseToHuman(s, 6);
           return {
             [`spendPocket${COIN_SYMBOL}`]: h(raw.liquid),
@@ -93,14 +99,14 @@ export async function POST(req: Request) {
       }),
 
       getEarnings: tool({
-        description: 'Get accrued interest earned (in SUI) and yield rate (bps/epoch).',
+        description: 'Get accrued interest earned and yield rate (bps/epoch).',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
           additionalProperties: false,
         }),
         execute: async () => {
-          const raw = await getEarnings();
+          const raw = await getEarnings(vaultId);
           return {
             [`accrued${COIN_SYMBOL}`]: baseToHuman(raw.accrued, 6),
             rateBpsPerEpoch: raw.aprBps,
@@ -109,7 +115,7 @@ export async function POST(req: Request) {
       }),
 
       getAgentActivity: tool({
-        description: 'Get recent on-chain agent events (sweeps, topups, withdrawals, sends).',
+        description: 'Get recent on-chain agent events (sweeps, topups, withdrawals, sends, deposits).',
         inputSchema: jsonSchema<{ limit?: number }>({
           type: 'object',
           properties: {
@@ -118,7 +124,7 @@ export async function POST(req: Request) {
           additionalProperties: false,
         }),
         execute: async ({ limit }: { limit?: number }) => {
-          const events = await getAgentActivity(limit ?? 10);
+          const events = await getAgentActivity(limit ?? 10, vaultId);
           return events.map(({ text, type, direction, epochStr, timestampMs }) => ({
             text,
             type,
@@ -130,19 +136,18 @@ export async function POST(req: Request) {
       }),
 
       getConfig: tool({
-        description: 'Get vault config: buffer, caps, payout address. All SUI amounts in SUI.',
+        description: 'Get vault config: buffer, caps, payout address.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
           additionalProperties: false,
         }),
         execute: async () => {
-          const raw = await getConfig();
-          // buffer/band are human decimals in .env; on-chain caps are base units
+          const raw = await getConfig(vaultId);
           const b = (s: string) => baseToHuman(s, 4);
           return {
-            buffer: raw.buffer,      // already human decimal (e.g. "50")
-            band: raw.band,          // already human decimal (e.g. "5")
+            buffer: raw.buffer,
+            band: raw.band,
             perTxCap: b(raw.perTxCap),
             dailyCap: b(raw.dailyCap),
             outflowPerTxCap: b(raw.outflowPerTxCap),
@@ -157,65 +162,59 @@ export async function POST(req: Request) {
 
       proposeSend: tool({
         description:
-          'Propose sending SUI to a named payee. Returns a proposal the user must confirm. Call this when the user says "send X to Y", "pay X", etc.',
+          'Propose sending to a named payee. Returns a proposal the user must confirm. Call this when the user says "send X to Y", "pay X", etc.',
         inputSchema: jsonSchema<{ amount: string; payeeLabel: string }>({
           type: 'object',
           properties: {
-            amount: {
-              type: 'string',
-              description: 'Amount in SUI as a decimal string, e.g. "0.05"',
-            },
-            payeeLabel: {
-              type: 'string',
-              description: 'Payee label (e.g. "mom"). Must match a known payee.',
-            },
+            amount: { type: 'string', description: 'Amount as a decimal string, e.g. "10"' },
+            payeeLabel: { type: 'string', description: 'Payee label (e.g. "mom"). Must match a known payee.' },
           },
           required: ['amount', 'payeeLabel'],
           additionalProperties: false,
         }),
         execute: async ({ amount, payeeLabel }: { amount: string; payeeLabel: string }) =>
-          proposeSend(amount, payeeLabel),
+          proposeSend(amount, payeeLabel, vaultId),
       }),
 
       proposeWithdrawToMe: tool({
         description:
-          'Propose withdrawing SUI from the spend pocket to the owner\'s payout address. Call this for "give me back", "withdraw to my wallet", etc.',
+          'Propose withdrawing from the spend pocket to the owner\'s payout address. Call this for "give me back", "withdraw to my wallet", etc.',
         inputSchema: jsonSchema<{ amount: string }>({
           type: 'object',
           properties: {
-            amount: { type: 'string', description: 'Amount in SUI, e.g. "0.1"' },
+            amount: { type: 'string', description: 'Amount, e.g. "10"' },
           },
           required: ['amount'],
           additionalProperties: false,
         }),
-        execute: async ({ amount }: { amount: string }) => proposeWithdrawToMe(amount),
+        execute: async ({ amount }: { amount: string }) => proposeWithdrawToMe(amount, vaultId),
       }),
 
       proposeSweep: tool({
         description:
-          'Propose moving liquid SUI to the savings pocket (sweep). Call this for "put aside", "save", "move to savings". Amount is optional — omit to sweep as much as the per-tx cap allows.',
+          'Propose moving liquid to the savings pocket (sweep). Call this for "put aside", "save", "move to savings". Amount is optional — omit to sweep as much as the per-tx cap allows.',
         inputSchema: jsonSchema<{ amount?: string }>({
           type: 'object',
           properties: {
-            amount: { type: 'string', description: 'Amount in SUI (optional)' },
+            amount: { type: 'string', description: 'Amount (optional)' },
           },
           additionalProperties: false,
         }),
-        execute: async ({ amount }: { amount?: string }) => proposeSweep(amount),
+        execute: async ({ amount }: { amount?: string }) => proposeSweep(amount, vaultId),
       }),
 
       proposeTopup: tool({
         description:
-          'Propose moving SUI from savings to the spend pocket (topup). Call this for "move to spending", "top up", "I need cash".',
+          'Propose moving from savings to the spend pocket (topup). Call this for "move to spending", "top up", "I need cash".',
         inputSchema: jsonSchema<{ amount: string }>({
           type: 'object',
           properties: {
-            amount: { type: 'string', description: 'Amount in SUI, e.g. "0.1"' },
+            amount: { type: 'string', description: 'Amount, e.g. "10"' },
           },
           required: ['amount'],
           additionalProperties: false,
         }),
-        execute: async ({ amount }: { amount: string }) => proposeTopup(amount),
+        execute: async ({ amount }: { amount: string }) => proposeTopup(amount, vaultId),
       }),
     },
   });

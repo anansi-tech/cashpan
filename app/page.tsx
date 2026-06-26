@@ -1,15 +1,38 @@
 import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
+import { getActiveVault } from '@/lib/db/vault-registry';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { ChatPanel } from '@/components/ChatPanel';
+import { UserSwitcher } from '@/components/UserSwitcher';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Page() {
+// Next.js 15: searchParams is a Promise in server components.
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ user?: string }>;
+}) {
+  const { user } = await searchParams;
+  const vault = await getActiveVault(user);
+
+  if (!vault) {
+    return (
+      <div style={{ padding: '2rem', color: 'var(--color-muted)', fontFamily: 'var(--font-mono)' }}>
+        No vault registered. Run:{' '}
+        <code style={{ color: 'var(--color-savings)' }}>
+          npm run create-vault -- --identity alice
+        </code>
+      </div>
+    );
+  }
+
+  const { vaultId } = vault;
+
   const [balances, earnings, activity] = await Promise.all([
-    getBalances(),
-    getEarnings(),
-    getAgentActivity(20),
+    getBalances(vaultId),
+    getEarnings(vaultId),
+    getAgentActivity(20, vaultId),
   ]);
 
   return (
@@ -48,20 +71,25 @@ export default async function Page() {
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span
-            style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: 'var(--color-savings)',
-              display: 'inline-block',
-              boxShadow: '0 0 8px var(--color-savings)',
-            }}
-          />
-          <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>
-            Sui testnet · epoch {balances.currentEpoch}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Dev user switcher — Block 1 only; removed in Block 2 when zkLogin lands */}
+          <UserSwitcher currentUser={vault.identityKey} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: 'var(--color-savings)',
+                display: 'inline-block',
+                boxShadow: '0 0 8px var(--color-savings)',
+              }}
+            />
+            <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>
+              Sui testnet · epoch {balances.currentEpoch}
+            </span>
+          </div>
         </div>
       </header>
 

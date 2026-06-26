@@ -14,11 +14,15 @@ import type { Proposal } from './propose';
 import { getPayeeMap } from './propose';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
-const VAULT_ID = process.env.VAULT_ID ?? '';
+// Shared across all vaults (single deployment):
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const AGENT_CAP_ID = process.env.AGENT_CAP_ID ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '0x2::sui::SUI';
+
+export interface VaultContext {
+  vaultId: string;
+  agentCapId: string;
+}
 
 function makeClient(): SuiJsonRpcClient {
   return new SuiJsonRpcClient({ url: RPC_URL, network: 'testnet' });
@@ -38,10 +42,10 @@ function readBalance(field: unknown): bigint {
 }
 
 // Re-validates proposal against fresh on-chain state before signing.
-async function revalidate(proposal: Proposal): Promise<void> {
+async function revalidate(proposal: Proposal, vaultId: string): Promise<void> {
   const client = makeClient();
   const [vaultObj, systemState] = await Promise.all([
-    client.getObject({ id: VAULT_ID, options: { showContent: true } }),
+    client.getObject({ id: vaultId, options: { showContent: true } }),
     client.getLatestSuiSystemState(),
   ]);
 
@@ -102,7 +106,7 @@ async function revalidate(proposal: Proposal): Promise<void> {
   }
 }
 
-function buildTx(proposal: Proposal): Transaction {
+function buildTx(proposal: Proposal, { vaultId, agentCapId }: VaultContext): Transaction {
   const tx = new Transaction();
   const target = (fn: string) => `${PACKAGE_ID}::vault::${fn}` as `${string}::${string}::${string}`;
   const amount = Number(proposal.amountMist);
@@ -112,8 +116,8 @@ function buildTx(proposal: Proposal): Transaction {
       target: target('agent_send'),
       typeArguments: [COIN_TYPE],
       arguments: [
-        tx.object(AGENT_CAP_ID),
-        tx.object(VAULT_ID),
+        tx.object(agentCapId),
+        tx.object(vaultId),
         tx.pure.u64(amount),
         tx.pure.address(proposal.recipient!),
       ],
@@ -126,8 +130,8 @@ function buildTx(proposal: Proposal): Transaction {
       target: target('agent_withdraw_to_owner'),
       typeArguments: [COIN_TYPE],
       arguments: [
-        tx.object(AGENT_CAP_ID),
-        tx.object(VAULT_ID),
+        tx.object(agentCapId),
+        tx.object(vaultId),
         tx.pure.u64(amount),
       ],
     });
@@ -139,8 +143,8 @@ function buildTx(proposal: Proposal): Transaction {
     target: target('rebalance'),
     typeArguments: [COIN_TYPE],
     arguments: [
-      tx.object(AGENT_CAP_ID),
-      tx.object(VAULT_ID),
+      tx.object(agentCapId),
+      tx.object(vaultId),
       tx.object(VENUE_ID),
       tx.pure.u8(proposal.action === 'sweep' ? 0 : 1),
       tx.pure.u64(amount),
@@ -149,16 +153,19 @@ function buildTx(proposal: Proposal): Transaction {
   return tx;
 }
 
-export async function executeProposal(proposal: Proposal): Promise<{ digest: string }> {
+export async function executeProposal(
+  proposal: Proposal,
+  vault: VaultContext,
+): Promise<{ digest: string }> {
   if (proposal.blocked) {
     throw new Error(`Cannot execute a blocked proposal: ${proposal.blocked}`);
   }
 
-  await revalidate(proposal);
+  await revalidate(proposal, vault.vaultId);
 
   const client = makeClient();
   const keypair = loadAgentKeypair();
-  const tx = buildTx(proposal);
+  const tx = buildTx(proposal, vault);
 
   const result = await client.signAndExecuteTransaction({
     signer: keypair,

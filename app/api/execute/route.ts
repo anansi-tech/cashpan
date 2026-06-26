@@ -10,6 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { executeProposal } from '@/lib/execute';
+import { resolveVault } from '@/lib/resolve-vault';
 import type { Proposal } from '@/lib/propose';
 
 export async function POST(req: Request) {
@@ -29,7 +30,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await executeProposal(proposal);
+    const vault = await resolveVault(req);
+    const result = await executeProposal(proposal, { vaultId: vault.vaultId, agentCapId: vault.agentCapId });
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Execution failed';

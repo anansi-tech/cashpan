@@ -10,7 +10,7 @@ import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { humanToBase, baseToHuman } from './coin-config';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
-const VAULT_ID = process.env.VAULT_ID ?? '';
+// VENUE_ID is shared across all vaults (single deployment).
 const VENUE_ID = process.env.VENUE_ID ?? '';
 
 function makeClient(): SuiJsonRpcClient {
@@ -107,10 +107,10 @@ interface VaultState {
   allowlist: Set<string>;
 }
 
-async function fetchVaultState(): Promise<VaultState> {
+async function fetchVaultState(vaultId: string): Promise<VaultState> {
   const client = makeClient();
   const [vaultObj, venueObj, systemState] = await Promise.all([
-    client.getObject({ id: VAULT_ID, options: { showContent: true } }),
+    client.getObject({ id: vaultId, options: { showContent: true } }),
     client.getObject({ id: VENUE_ID, options: { showContent: true } }),
     client.getLatestSuiSystemState(),
   ]);
@@ -182,8 +182,9 @@ async function fetchVaultState(): Promise<VaultState> {
 export async function proposeSend(
   amountSuiStr: string,
   payeeLabel: string,
+  vaultId: string,
 ): Promise<SendProposal> {
-  const [vault, payees] = await Promise.all([fetchVaultState(), Promise.resolve(getPayeeMap())]);
+  const [vault, payees] = await Promise.all([fetchVaultState(vaultId), Promise.resolve(getPayeeMap())]);
   const amountMist = suiToMist(amountSuiStr);
   const recipient = payees[payeeLabel.toLowerCase()];
 
@@ -207,8 +208,8 @@ export async function proposeSend(
   return base;
 }
 
-export async function proposeWithdrawToMe(amountSuiStr: string): Promise<WithdrawToMeProposal> {
-  const vault = await fetchVaultState();
+export async function proposeWithdrawToMe(amountSuiStr: string, vaultId: string): Promise<WithdrawToMeProposal> {
+  const vault = await fetchVaultState(vaultId);
   const amountMist = suiToMist(amountSuiStr);
 
   const base: WithdrawToMeProposal = {
@@ -228,8 +229,8 @@ export async function proposeWithdrawToMe(amountSuiStr: string): Promise<Withdra
   return base;
 }
 
-export async function proposeSweep(amountSuiStr?: string): Promise<SweepProposal> {
-  const vault = await fetchVaultState();
+export async function proposeSweep(amountSuiStr: string | undefined, vaultId: string): Promise<SweepProposal> {
+  const vault = await fetchVaultState(vaultId);
   let amountMist: bigint;
   if (amountSuiStr) {
     amountMist = suiToMist(amountSuiStr);
@@ -257,8 +258,8 @@ export async function proposeSweep(amountSuiStr?: string): Promise<SweepProposal
   return base;
 }
 
-export async function proposeTopup(amountSuiStr: string): Promise<TopupProposal> {
-  const vault = await fetchVaultState();
+export async function proposeTopup(amountSuiStr: string, vaultId: string): Promise<TopupProposal> {
+  const vault = await fetchVaultState(vaultId);
   const amountMist = suiToMist(amountSuiStr);
   const dailyRemaining = vault.dailyCap - vault.effectiveDailySpent;
 

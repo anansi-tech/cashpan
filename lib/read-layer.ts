@@ -2,6 +2,9 @@
  * Server-side read layer. The only data source for the dashboard and chat.
  * No writes, no keys, no Transaction objects anywhere in this file.
  *
+ * All functions take explicit vaultId — no VAULT_ID env reads in the request path.
+ * VENUE_ID and PACKAGE_ID are shared across all vaults (single deployment).
+ *
  * Mirrors computeCurrentValue from src/sense.ts — the two must stay in sync.
  */
 
@@ -9,9 +12,8 @@ import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
-const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const VAULT_ID = process.env.VAULT_ID ?? '';
 const VENUE_ID = process.env.VENUE_ID ?? '';
+const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 
 function makeClient(): SuiJsonRpcClient {
   return new SuiJsonRpcClient({ url: RPC_URL, network: 'testnet' });
@@ -57,7 +59,7 @@ export interface Earnings {
 }
 
 export interface ActivityEvent {
-  type: 'rebalance' | 'withdraw' | 'send';
+  type: 'rebalance' | 'withdraw' | 'send' | 'deposit';
   text: string;
   amount: string;
   direction?: number;
@@ -83,11 +85,11 @@ export interface Config {
 
 // ─── Read functions ────────────────────────────────────────────────────────────
 
-export async function getBalances(): Promise<Balances> {
+export async function getBalances(vaultId: string): Promise<Balances> {
   const client = makeClient();
 
   const [vaultObj, venueObj, systemState] = await Promise.all([
-    client.getObject({ id: VAULT_ID, options: { showContent: true } }),
+    client.getObject({ id: vaultId, options: { showContent: true } }),
     client.getObject({ id: VENUE_ID, options: { showContent: true } }),
     client.getLatestSuiSystemState(),
   ]);
@@ -137,21 +139,25 @@ export async function getBalances(): Promise<Balances> {
   };
 }
 
-export async function getEarnings(): Promise<Earnings> {
-  const balances = await getBalances();
+export async function getEarnings(vaultId: string): Promise<Earnings> {
+  const balances = await getBalances(vaultId);
   const accrued = (BigInt(balances.savingsValue) - BigInt(balances.savingsPrincipal)).toString();
   return { accrued, aprBps: balances.rateBps };
 }
 
-export async function getAgentActivity(limit = 20): Promise<ActivityEvent[]> {
+export async function getAgentActivity(
+  limit = 20,
+  vaultId?: string,
+): Promise<ActivityEvent[]> {
   if (!PACKAGE_ID) return [];
   const client = makeClient();
 
-  const perType = Math.ceil(limit / 3) * 2;
+  const perType = Math.ceil(limit / 4) * 2;
   const eventTypes = [
     `${PACKAGE_ID}::vault::RebalanceEvent`,
     `${PACKAGE_ID}::vault::WithdrawEvent`,
     `${PACKAGE_ID}::vault::SendEvent`,
+    `${PACKAGE_ID}::vault::DepositEvent`,
   ];
 
   const results = await Promise.allSettled(
@@ -171,6 +177,8 @@ export async function getAgentActivity(limit = 20): Promise<ActivityEvent[]> {
     for (const ev of result.value.data) {
       const json = ev.parsedJson as Record<string, unknown> | undefined;
       if (!json) continue;
+      // Filter to the resolved vault when specified
+      if (vaultId && String(json.vault_id ?? '') !== vaultId) continue;
       const digest = (ev.id as { txDigest: string })?.txDigest ?? '';
       const timestampMs = (ev as { timestampMs?: string }).timestampMs;
 
@@ -209,6 +217,10 @@ export async function getAgentActivity(limit = 20): Promise<ActivityEvent[]> {
           ? `Agent sent ${display} ${COIN_SYMBOL} to ${short}`
           : `Sent ${display} ${COIN_SYMBOL} to ${short}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
+      } else if (ev.type.endsWith('::DepositEvent')) {
+        const amount = String(json.amount ?? '0');
+        const display = `$${baseToHuman(amount)}`;
+        events.push({ type: 'deposit', text: `Deposited ${display} ${COIN_SYMBOL}`, amount, timestampMs, digest });
       }
     }
   }
@@ -217,9 +229,9 @@ export async function getAgentActivity(limit = 20): Promise<ActivityEvent[]> {
   return events.slice(0, limit);
 }
 
-export async function getConfig(): Promise<Config> {
+export async function getConfig(vaultId: string): Promise<Config> {
   const client = makeClient();
-  const vaultObj = await client.getObject({ id: VAULT_ID, options: { showContent: true } });
+  const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
 
   if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
 
@@ -234,8 +246,7 @@ export async function getConfig(): Promise<Config> {
     outflowDailyCap: String(vf.outflow_daily_cap ?? '0'),
     payoutAddress: String(vf.payout_address ?? ''),
     packageId: PACKAGE_ID,
-    vaultId: VAULT_ID,
+    vaultId,
     venueId: VENUE_ID,
   };
 }
-
