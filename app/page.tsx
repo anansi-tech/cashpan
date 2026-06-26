@@ -6,6 +6,7 @@ import { ActivityFeed } from '@/components/ActivityFeed';
 import { ChatPanel } from '@/components/ChatPanel';
 import { SignIn } from '@/components/SignIn';
 import { SignOutButton } from '@/components/SignOutButton';
+import { ProvisionVault } from '@/components/ProvisionVault';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,25 +19,12 @@ export default async function Page() {
   const vault = await getActiveVault(sub);
 
   if (!vault) {
-    // ProvisionVault (Task 4) renders here. Placeholder until then.
     return (
-      <div
-        style={{
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--color-bg)',
-          fontFamily: 'var(--font-mono)',
-          gap: '1rem',
-        }}
-      >
-        <span style={{ fontSize: '2rem' }}>🍳</span>
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: 0 }}>
-          Setting up your vault…
-        </p>
-      </div>
+      <ProvisionVault
+        packageId={process.env.PACKAGE_ID!}
+        venueId={process.env.VENUE_ID!}
+        coinType={process.env.COIN_TYPE!}
+      />
     );
   }
 
