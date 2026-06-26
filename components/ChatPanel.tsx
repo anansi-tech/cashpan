@@ -3,16 +3,17 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, isToolUIPart, getToolName } from 'ai';
 import type { UIMessage } from 'ai';
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { ConfirmCard } from './ConfirmCard';
 import type { Proposal } from '@/lib/propose';
 import type { VaultTxContext } from '@/lib/vault-tx';
 
 export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vaultCtx: VaultTxContext }) {
   const [inputText, setInputText] = useState('');
-  // Track which proposal tool calls have been dismissed
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [focused, setFocused] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const transport = useMemo(() => new DefaultChatTransport(), []);
   const { messages, sendMessage, status } = useChat({ transport });
@@ -23,21 +24,28 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  }, []);
+
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || isStreaming) return;
     setInputText('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     await sendMessage({ text });
   };
 
-  const handleSuccess = (digest: string) => {
-    onRefresh?.();
-  };
+  const handleSuccess = () => { onRefresh?.(); };
+  const canSend = !!inputText.trim() && !isStreaming;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.25rem 0.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {messages.length === 0 && <EmptyState />}
 
         {messages.map((msg) => (
@@ -56,58 +64,73 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
       </div>
 
       {/* Input */}
-      <div style={{
-        borderTop: '1px solid var(--color-border)',
-        padding: '0.875rem 1rem',
-        display: 'flex',
-        gap: '0.625rem',
-        alignItems: 'flex-end',
-        flexShrink: 0,
-      }}>
-        <textarea
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder="Ask about your balance, or say 'put aside 0.05 SUI'…"
-          rows={1}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          style={{
-            flex: 1,
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid var(--color-border)',
-            borderRadius: '0.75rem',
-            padding: '0.625rem 0.875rem',
-            color: 'var(--color-text)',
-            resize: 'none',
-            fontFamily: 'inherit',
-            fontSize: '0.875rem',
-            outline: 'none',
-            lineHeight: 1.5,
-          }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(16,185,129,0.4)')}
-          onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--color-border)')}
-        />
-        <button
-          onClick={handleSend}
-          disabled={!inputText.trim() || isStreaming}
-          style={{
-            background: inputText.trim() && !isStreaming ? 'var(--color-savings)' : 'rgba(255,255,255,0.04)',
-            border: '1px solid var(--color-border)',
-            borderRadius: '0.75rem',
-            color: inputText.trim() && !isStreaming ? '#0a0f1e' : 'var(--color-muted)',
-            padding: '0.625rem 1rem',
-            cursor: inputText.trim() && !isStreaming ? 'pointer' : 'not-allowed',
-            fontSize: '0.875rem',
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Send
-        </button>
+      <div style={{ padding: '0.75rem 1rem 1rem', flexShrink: 0 }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'rgba(255,255,255,0.04)',
+          border: `1px solid ${focused ? 'rgba(16,185,129,0.45)' : 'rgba(148,163,184,0.18)'}`,
+          borderRadius: '1rem',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+          boxShadow: focused ? '0 0 0 3px rgba(16,185,129,0.08)' : 'none',
+        }}>
+          <textarea
+            ref={textareaRef}
+            value={inputText}
+            onChange={(e) => { setInputText(e.target.value); autoResize(); }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder="Ask about your balance, or say 'send mom 0.05'…"
+            rows={3}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              padding: '0.875rem 1rem 0.375rem',
+              color: 'var(--color-text)',
+              resize: 'none',
+              fontFamily: 'inherit',
+              fontSize: '0.9375rem',
+              outline: 'none',
+              lineHeight: 1.6,
+              minHeight: '4.5rem',
+              maxHeight: '12rem',
+              overflowY: 'auto',
+              width: '100%',
+            }}
+          />
+          {/* Toolbar */}
+          <div style={{ display: 'flex', alignItems: 'center', padding: '0.375rem 0.625rem 0.5rem' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--color-muted-2)', flex: 1, paddingLeft: '0.25rem', userSelect: 'none' }}>
+              Shift+Enter for new line
+            </span>
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              title="Send"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '2rem',
+                height: '2rem',
+                borderRadius: '0.5rem',
+                border: 'none',
+                background: canSend ? 'var(--color-savings)' : 'rgba(255,255,255,0.06)',
+                color: canSend ? '#0a0f1e' : 'var(--color-muted)',
+                cursor: canSend ? 'pointer' : 'not-allowed',
+                transition: 'background 0.15s, color 0.15s',
+                flexShrink: 0,
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <path d="M7.5 2L7.5 13M7.5 2L3 6.5M7.5 2L12 6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
