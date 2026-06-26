@@ -23,6 +23,12 @@ export function required(key: string): string {
   return v;
 }
 
+/** Convert a human-decimal amount to base units using COIN_DECIMALS from env. */
+export function toBase(human: string): bigint {
+  const decimals = parseInt(process.env.COIN_DECIMALS ?? "6", 10);
+  return BigInt(Math.round(parseFloat(human) * 10 ** decimals));
+}
+
 export function ownerKeypair(): Ed25519Keypair {
   const activeAddress = execSync("sui client active-address", { encoding: "utf8" }).trim();
   const keystorePath = join(process.env.HOME ?? "/root", ".sui", "sui_config", "sui.keystore");
