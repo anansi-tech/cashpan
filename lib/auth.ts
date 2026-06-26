@@ -4,7 +4,13 @@
  */
 
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { generateNonce, generateRandomness, genAddressSeed, type ZkLoginSignatureInputs } from '@mysten/sui/zklogin';
+import {
+  generateNonce,
+  generateRandomness,
+  genAddressSeed,
+  getExtendedEphemeralPublicKey,
+  type ZkLoginSignatureInputs,
+} from '@mysten/sui/zklogin';
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 
 const KEYS = {
@@ -99,7 +105,7 @@ export async function handleCallback(): Promise<ZkLoginSession> {
     body: JSON.stringify({
       jwt,
       maxEpoch,
-      ephemeralPublicKey: ephemeralKey.getPublicKey().toBase64(),
+      ephemeralPublicKey: getExtendedEphemeralPublicKey(ephemeralKey.getPublicKey()),
       jwtRandomness: randomness,
       salt,
     }),
