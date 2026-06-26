@@ -3,7 +3,7 @@
  *
  * INVARIANT: NO tool here signs or submits a transaction.
  * The propose tools return structured proposals only.
- * /api/execute (a separate endpoint, NOT registered here) is the only signer.
+ * Execution is client-side via executeTransaction (zkLogin + Shinami sponsor).
  *
  * grep this file for signAndExecuteTransaction, Transaction, owner_send,
  * agent_send, withdraw → none present.

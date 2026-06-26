@@ -1,5 +1,9 @@
 /**
- * Cashpan agent — sense → decide → act loop.
+ * DEV/SINGLE-VAULT TOOL — not on the product path for real users.
+ *
+ * Block 4: user-owned vaults use client-side zkLogin-signed transactions.
+ * This loop is the future Autopilot product (opt-in AgentCap, deferred).
+ * Run manually with `npm run agent` for single-vault dev/testing only.
  *
  * No LLM on this path. Load .env, read vault state, compute rebalance decision,
  * submit a PTB if needed. Runs on a plain setInterval.
