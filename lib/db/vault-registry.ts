@@ -16,9 +16,10 @@ export interface VaultRecord {
   identityKey: string;
   vaultId: string;
   ownerCapId: string;
-  agentCapId: string;
+  agentCapId?: string;       // Block 2: not issued; Block 4+ Autopilot
   payoutAddress: string;
   coinType: string;
+  salt?: string;             // zkLogin salt (base64); stored for audit / address re-derivation
   createdAt: Date;
   // Reserved for Block 3:
   eventCursor?: string;
@@ -32,9 +33,10 @@ const VaultSchema = new Schema<VaultDoc>({
   identityKey:   { type: String, required: true, unique: true, index: true },
   vaultId:       { type: String, required: true },
   ownerCapId:    { type: String, required: true },
-  agentCapId:    { type: String, required: true },
+  agentCapId:    { type: String },
   payoutAddress: { type: String, required: true },
   coinType:      { type: String, required: true },
+  salt:          { type: String },
   createdAt:     { type: Date, default: () => new Date() },
   eventCursor:   { type: String },
   payees:        { type: Map, of: String },
@@ -45,7 +47,7 @@ function getModel(): Model<VaultDoc> {
     mongoose.model<VaultDoc>('Vault', VaultSchema);
 }
 
-export async function registerVault(record: Omit<VaultRecord, 'createdAt'>): Promise<VaultRecord> {
+export async function registerVault(record: Omit<VaultRecord, 'createdAt' | 'agentCapId'> & { agentCapId?: string }): Promise<VaultRecord> {
   await connectDB();
   const VaultModel = getModel();
   const doc = await VaultModel.findOneAndUpdate(

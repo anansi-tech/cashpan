@@ -31,6 +31,7 @@ export async function POST(req: Request) {
 
   try {
     const vault = await resolveVault(req);
+    if (!vault.agentCapId) return NextResponse.json({ error: 'No agent cap for this vault' }, { status: 400 });
     const result = await executeProposal(proposal, { vaultId: vault.vaultId, agentCapId: vault.agentCapId });
     return NextResponse.json(result);
   } catch (err) {
