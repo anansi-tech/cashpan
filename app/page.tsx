@@ -8,6 +8,7 @@ import type { VaultTxContext } from '@/lib/vault-tx';
 import { SignIn } from '@/components/SignIn';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ProvisionVault } from '@/components/ProvisionVault';
+import { AccountBar } from '@/components/AccountBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,6 +103,8 @@ export default async function Page() {
           </div>
         </div>
       </header>
+
+      <AccountBar vaultId={vault.vaultId} address={vault.payoutAddress} />
 
       {/* Two-column layout fills remaining height */}
       <div className="dashboard-grid" style={{ flex: 1 }}>
