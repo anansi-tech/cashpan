@@ -50,6 +50,7 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
   const [displayed, setDisplayed] = useState({
     liquid: Number(initial.balances.liquid),
     savingsValue: Number(initial.balances.savingsValue),
+    savingsPrincipal: Number(initial.balances.savingsPrincipal),
     currentEpoch: initial.balances.currentEpoch,
   });
 
@@ -89,7 +90,7 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
         currentEpoch: data.currentEpoch,
         pollTime: Date.now(),
       };
-      setDisplayed((prev) => ({ ...prev, liquid: Number(data.liquid) }));
+      setDisplayed((prev) => ({ ...prev, liquid: Number(data.liquid), savingsPrincipal: Number(data.savingsPrincipal) }));
     } catch { /* silent */ }
   }, []);
 
@@ -109,7 +110,7 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
   const total = liquid + savingsValue;
   const fillPercent = total > 0 ? (savingsValue / total) * 100 : 0;
 
-  const principal = Number(initial.balances.savingsPrincipal);
+  const principal = displayed.savingsPrincipal;
   const accrued = Math.max(0, savingsValue - principal);
   const accruedLabel = accrued > 0 ? `+$${fmt(accrued, 4)} earned` : undefined;
 

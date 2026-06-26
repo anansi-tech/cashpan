@@ -8,6 +8,13 @@ import { getSession } from '@/lib/auth';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
 
+// Trim trailing zeros past 2 decimal places: "10.000000" → "10.00", "0.050000" → "0.05"
+function fmtAmt(s: string): string {
+  const n = parseFloat(s);
+  if (isNaN(n)) return s;
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 interface ConfirmCardProps {
   proposal: Proposal;
   onSuccess: (digest: string) => void;
@@ -125,7 +132,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
       {/* Proposal details */}
       {!isBlocked && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <ProposalDetail label="Amount" value={`${proposal.amountSui} ${COIN_SYM}`} />
+          <ProposalDetail label="Amount" value={`${fmtAmt(proposal.amountSui)} ${COIN_SYM}`} />
 
           {proposal.action === 'send' && (
             <>
@@ -137,7 +144,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
                   dim
                 />
               )}
-              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
             </>
           )}
 
@@ -148,21 +155,21 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
                 value={`${proposal.payoutAddress.slice(0, 8)}…${proposal.payoutAddress.slice(-6)}`}
                 dim
               />
-              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'sweep' && (
             <>
-              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Savings" value={`${proposal.savingsSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Savings" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'topup' && (
             <>
-              <ProposalDetail label="Savings" value={`${proposal.savingsSui} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Spend pocket" value={`${proposal.liquidSui} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Savings" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
             </>
           )}
         </div>
