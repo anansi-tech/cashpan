@@ -29,13 +29,13 @@ export function Dashboard({ balances, earnings }: DashboardProps) {
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'stretch' }}>
         <PocketCard
           type="liquid"
-          amountMist={balances.liquid}
+          amountBase={balances.liquid}
           label="Spend Pocket"
           sublabel="ready to use"
         />
         <PocketCard
           type="savings"
-          amountMist={balances.savingsValue}
+          amountBase={balances.savingsValue}
           label="Savings Pocket"
           sublabel={accruedLabel}
         />

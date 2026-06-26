@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import type { Proposal, BlockReason } from '@/lib/propose';
 
+const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
+
 interface ConfirmCardProps {
   proposal: Proposal;
   onSuccess: (digest: string) => void;
@@ -142,7 +144,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
       {/* Proposal details */}
       {!isBlocked && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <ProposalDetail label="Amount" value={`${proposal.amountSui} SUI`} />
+          <ProposalDetail label="Amount" value={`${proposal.amountSui} ${COIN_SYM}`} />
 
           {proposal.action === 'send' && (
             <>

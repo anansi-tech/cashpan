@@ -6,6 +6,7 @@
  */
 
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { baseToHuman, COIN_SYMBOL } from './coin-config';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
@@ -176,10 +177,10 @@ export async function getAgentActivity(limit = 20): Promise<ActivityEvent[]> {
       if (ev.type.endsWith('::RebalanceEvent')) {
         const direction = Number(json.direction ?? 0);
         const amount = String(json.amount ?? '0');
-        const sui = formatSui(amount);
+        const display = `$${baseToHuman(amount)}`;
         const text = direction === 0
-          ? `Swept ${sui} SUI to savings`
-          : `Topped up ${sui} SUI from savings`;
+          ? `Swept ${display} ${COIN_SYMBOL} to savings`
+          : `Topped up ${display} ${COIN_SYMBOL} from savings`;
         events.push({
           type: 'rebalance',
           text,
@@ -191,22 +192,22 @@ export async function getAgentActivity(limit = 20): Promise<ActivityEvent[]> {
         });
       } else if (ev.type.endsWith('::WithdrawEvent')) {
         const amount = String(json.amount ?? '0');
-        const sui = formatSui(amount);
+        const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
         const to = String(json.to ?? '');
         const text = byAgent
-          ? `Agent moved ${sui} SUI to payout address`
-          : `Withdrew ${sui} SUI to wallet`;
+          ? `Agent moved ${display} ${COIN_SYMBOL} to payout address`
+          : `Withdrew ${display} ${COIN_SYMBOL} to wallet`;
         events.push({ type: 'withdraw', text, amount, byAgent, to, timestampMs, digest });
       } else if (ev.type.endsWith('::SendEvent')) {
         const amount = String(json.amount ?? '0');
-        const sui = formatSui(amount);
+        const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
         const to = String(json.to ?? '');
         const short = to.length > 12 ? `${to.slice(0, 6)}…${to.slice(-4)}` : to;
         const text = byAgent
-          ? `Agent sent ${sui} SUI to ${short}`
-          : `Sent ${sui} SUI to ${short}`;
+          ? `Agent sent ${display} ${COIN_SYMBOL} to ${short}`
+          : `Sent ${display} ${COIN_SYMBOL} to ${short}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
       }
     }
@@ -238,8 +239,3 @@ export async function getConfig(): Promise<Config> {
   };
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatSui(mist: string): string {
-  return (Number(mist) / 1e9).toFixed(4);
-}

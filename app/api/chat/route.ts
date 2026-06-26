@@ -11,6 +11,7 @@
 
 import { streamText, tool, convertToModelMessages, jsonSchema, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
+import { baseToHuman, COIN_SYMBOL } from '@/lib/coin-config';
 import { getBalances, getEarnings, getAgentActivity, getConfig } from '@/lib/read-layer';
 import {
   proposeSend,
@@ -44,19 +45,19 @@ Call getBalances, getEarnings, getAgentActivity, or getConfig whenever you need 
 ## Proposing money moves
 When the user's intent to move money is clear, immediately call the matching propose tool. These tools validate the move from fresh on-chain reads and return a proposal — they do NOT execute anything. A confirmation card appears in the UI for the user to tap.
 
-- proposeSend({ amount, payeeLabel }) — "send mom 0.05 SUI", "pay Alex $20"
-- proposeWithdrawToMe({ amount }) — "give me back 0.1 SUI", "withdraw to my wallet"
+- proposeSend({ amount, payeeLabel }) — "send mom $10", "pay Alex 5"
+- proposeWithdrawToMe({ amount }) — "give me back $10", "withdraw to my wallet"
 - proposeSweep({ amount? }) — "put aside $50", "sweep everything", "move to savings"
-- proposeTopup({ amount }) — "move 0.1 to spending", "top up my spend pocket"
+- proposeTopup({ amount }) — "move $20 to spending", "top up my spend pocket"
 
-Amounts are in SUI as a decimal string, e.g. "0.05".
+Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak dollars.
 
 ## After receiving a proposal result
 - If blocked: explain the reason warmly in one or two sentences and suggest what the user can do.
-- If not blocked: one sentence confirming what you've queued (e.g. "Queued a send of 0.01 SUI to mom."). Do NOT say "tap Confirm" or "please confirm" — the card handles that. Don't repeat the numbers — the card shows them.
+- If not blocked: one sentence confirming what you've queued (e.g. "Queued a send of $10 to mom."). Do NOT say "tap Confirm" or "please confirm" — the card handles that. Don't repeat the numbers — the card shows them.
 
 ## Hard rules
-- Values in SUI (1 SUI = 1,000,000,000 MIST). Always speak in SUI.
+- All amounts are ${COIN_SYMBOL}. Speak in dollars ($10.00, $50, etc.), never in raw base units.
 - Never sign or submit. The propose tools only compute; tapping Confirm is what executes.
 - Owner cap, owner key: never referenced here. Agent cap only for chat moves.`;
 }
@@ -81,11 +82,11 @@ export async function POST(req: Request) {
         }),
         execute: async () => {
           const raw = await getBalances();
-          const m = (s: string) => (Number(s) / 1e9).toFixed(6);
+          const h = (s: string) => baseToHuman(s, 6);
           return {
-            spendPocketSui: m(raw.liquid),
-            savingsPocketSui: m(raw.savingsValue),
-            totalSui: m(raw.total),
+            [`spendPocket${COIN_SYMBOL}`]: h(raw.liquid),
+            [`savingsPocket${COIN_SYMBOL}`]: h(raw.savingsValue),
+            [`total${COIN_SYMBOL}`]: h(raw.total),
             currentEpoch: raw.currentEpoch,
           };
         },
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
         execute: async () => {
           const raw = await getEarnings();
           return {
-            accruedSui: (Number(raw.accrued) / 1e9).toFixed(6),
+            [`accrued${COIN_SYMBOL}`]: baseToHuman(raw.accrued, 6),
             rateBpsPerEpoch: raw.aprBps,
           };
         },
@@ -137,15 +138,17 @@ export async function POST(req: Request) {
         }),
         execute: async () => {
           const raw = await getConfig();
-          const m = (s: string) => (Number(s) / 1e9).toFixed(4);
+          // buffer/band are human decimals in .env; on-chain caps are base units
+          const b = (s: string) => baseToHuman(s, 4);
           return {
-            bufferSui: m(raw.buffer),
-            bandSui: m(raw.band),
-            perTxCapSui: m(raw.perTxCap),
-            dailyCapSui: m(raw.dailyCap),
-            outflowPerTxCapSui: m(raw.outflowPerTxCap),
-            outflowDailyCapSui: m(raw.outflowDailyCap),
+            buffer: raw.buffer,      // already human decimal (e.g. "50")
+            band: raw.band,          // already human decimal (e.g. "5")
+            perTxCap: b(raw.perTxCap),
+            dailyCap: b(raw.dailyCap),
+            outflowPerTxCap: b(raw.outflowPerTxCap),
+            outflowDailyCap: b(raw.outflowDailyCap),
             payoutAddress: raw.payoutAddress,
+            symbol: COIN_SYMBOL,
           };
         },
       }),

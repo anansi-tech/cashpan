@@ -6,11 +6,17 @@
  *   COIN_DECIMALS=9  COIN_SYMBOL=SUI   → native SUI
  */
 
-const DECIMALS = parseInt(process.env.COIN_DECIMALS ?? '9', 10);
+// NEXT_PUBLIC_ variant is bundled into the browser; plain variant used by scripts/agent.
+// setup.ts writes both so either naming convention works.
+const DECIMALS = parseInt(
+  process.env.NEXT_PUBLIC_COIN_DECIMALS ?? process.env.COIN_DECIMALS ?? '9',
+  10,
+);
 const FACTOR = 10 ** DECIMALS;
 
 export const COIN_DECIMALS = DECIMALS;
-export const COIN_SYMBOL = process.env.COIN_SYMBOL ?? 'SUI';
+export const COIN_SYMBOL =
+  process.env.NEXT_PUBLIC_COIN_SYMBOL ?? process.env.COIN_SYMBOL ?? 'SUI';
 
 /** Human decimal string → base-unit bigint.  e.g. "50" → 50_000_000n (6 dec) */
 export function humanToBase(human: string): bigint {

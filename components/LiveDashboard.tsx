@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { CashPanVisual } from './CashPanVisual';
 import { PocketCard } from './PocketCard';
-import { formatSui } from '@/lib/utils';
 import type { Balances, Earnings } from '@/lib/read-layer';
 
+const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '9', 10);
+const COIN_FACTOR = 10 ** COIN_DEC;
+const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
+
 interface LiveDashboardProps {
-  /** Values fetched server-side on first render */
   initial: {
     balances: Balances;
     earnings: Earnings;
@@ -16,28 +18,25 @@ interface LiveDashboardProps {
 
 /**
  * Projects savings value forward in wall-clock time between on-chain polls.
- *
- * On-chain accrual is epoch-based (steps once per ~24h epoch), but the UI
- * animates continuously as a projection. Reconciles toward the authoritative
- * on-chain value with exponential easing on each poll.
- *
  * Formula mirrors computeCurrentValue in src/sense.ts and lib/read-layer.ts.
  */
 function projectSavings(
-  principal: number,      // MIST
+  principal: number,  // base units
   rateBps: number,
   periodEpochs: number,
   elapsedMs: number,
 ): number {
-  // epochDurationMs is approximate — testnet epochs are ~24h
-  const epochDurationMs = 24 * 60 * 60 * 1000;
+  const epochDurationMs = 24 * 60 * 60 * 1000; // ~24h testnet epoch
   const elapsedEpochs = elapsedMs / epochDurationMs;
   const interest = (principal * rateBps * elapsedEpochs) / (10_000 * periodEpochs);
   return principal + interest;
 }
 
+function fmt(base: number, d = 2): string {
+  return (base / COIN_FACTOR).toFixed(d);
+}
+
 export function LiveDashboard({ initial }: LiveDashboardProps) {
-  // Authoritative values from the last poll
   const authRef = useRef({
     liquid: Number(initial.balances.liquid),
     savingsPrincipal: Number(initial.balances.savingsPrincipal),
@@ -48,7 +47,6 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
     pollTime: Date.now(),
   });
 
-  // Display state: what the user sees (projected + eased)
   const [displayed, setDisplayed] = useState({
     liquid: Number(initial.balances.liquid),
     savingsValue: Number(initial.balances.savingsValue),
@@ -58,44 +56,30 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
   const rafRef = useRef<number>(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Continuous animation loop
   const animate = useCallback(() => {
     const auth = authRef.current;
     const elapsed = Date.now() - auth.pollTime;
-
-    // Project current savings based on elapsed time since last poll
     const projected = auth.savingsPrincipal > 0
       ? projectSavings(auth.savingsPrincipal, auth.rateBps, auth.periodEpochs, elapsed)
       : auth.savingsValue;
-
     setDisplayed((prev) => {
-      // Ease displayed value toward the projection (fast when far, slow when close)
       const diff = projected - prev.savingsValue;
       const eased = Math.abs(diff) < 1 ? projected : prev.savingsValue + diff * 0.08;
-      return {
-        ...prev,
-        savingsValue: eased,
-        currentEpoch: auth.currentEpoch,
-      };
+      return { ...prev, savingsValue: eased, currentEpoch: auth.currentEpoch };
     });
-
     rafRef.current = requestAnimationFrame(animate);
   }, []);
 
-  // Start animation loop
   useEffect(() => {
     rafRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafRef.current);
   }, [animate]);
 
-  // Poll /api/balances every 5s
   const poll = useCallback(async () => {
     try {
       const res = await fetch('/api/balances', { cache: 'no-store' });
       if (!res.ok) return;
       const data: Balances = await res.json();
-
-      // Update authoritative values; animation loop will ease toward new projection
       authRef.current = {
         liquid: Number(data.liquid),
         savingsPrincipal: Number(data.savingsPrincipal),
@@ -105,64 +89,49 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
         currentEpoch: data.currentEpoch,
         pollTime: Date.now(),
       };
-      // Snap liquid immediately (it doesn't animate between polls)
       setDisplayed((prev) => ({ ...prev, liquid: Number(data.liquid) }));
-    } catch {
-      // Network errors are silent — just keep showing the last good values
-    }
+    } catch { /* silent */ }
   }, []);
 
   useEffect(() => {
     pollRef.current = setInterval(poll, 5_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [poll]);
 
-  // Immediate refresh when a transaction is confirmed via the chat
   useEffect(() => {
     const handler = () => { void poll(); };
     window.addEventListener('cashpan:refresh', handler);
     return () => window.removeEventListener('cashpan:refresh', handler);
   }, [poll]);
 
-  // Derived display values
   const liquid = displayed.liquid;
   const savingsValue = displayed.savingsValue;
   const total = liquid + savingsValue;
   const fillPercent = total > 0 ? (savingsValue / total) * 100 : 0;
 
-  // Accrued = live savings value minus the fixed principal
   const principal = Number(initial.balances.savingsPrincipal);
   const accrued = Math.max(0, savingsValue - principal);
-  const accruedLabel = accrued > 0
-    ? `+${(accrued / 1e9).toFixed(6)} earned`
-    : undefined;
+  const accruedLabel = accrued > 0 ? `+$${fmt(accrued, 4)} earned` : undefined;
 
   const aprBps = Number(initial.earnings.aprBps);
-  const aprPercent = (aprBps / 100).toFixed(0);
-  const accruedSui = (accrued / 1e9).toFixed(6);
-  const totalSui = formatSui(total.toFixed(0), 4);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-      {/* Pocket cards */}
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'stretch' }}>
         <PocketCard
           type="liquid"
-          amountMist={liquid.toFixed(0)}
+          amountBase={liquid.toFixed(0)}
           label="Spend Pocket"
           sublabel="ready to use"
         />
         <PocketCard
           type="savings"
-          amountMist={savingsValue.toFixed(0)}
+          amountBase={savingsValue.toFixed(0)}
           label="Savings Pocket"
           sublabel={accruedLabel}
         />
       </div>
 
-      {/* Stats row */}
       <div
         style={{
           display: 'flex',
@@ -174,20 +143,19 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
           alignItems: 'center',
         }}
       >
-        <Stat label="Total" value={`${totalSui} SUI`} />
+        <Stat label="Total" value={`$${fmt(total, 2)} ${COIN_SYM}`} />
         <Divider />
-        <Stat label="Earned" value={`${accruedSui} SUI`} color="var(--color-savings)" />
+        <Stat label="Earned" value={`$${fmt(accrued, 4)} ${COIN_SYM}`} color="var(--color-savings)" />
         <Divider />
         <Stat label="Yield" value={`${aprBps} bps/epoch`} />
         <Divider />
         <Stat label="Epoch" value={`#${displayed.currentEpoch}`} />
       </div>
 
-      {/* The pan */}
       <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0', flex: 1 }}>
         <CashPanVisual
           fillPercent={fillPercent}
-          label={`${(savingsValue / 1e9).toFixed(4)} SUI`}
+          label={`$${fmt(savingsValue, 2)} ${COIN_SYM}`}
         />
       </div>
     </div>

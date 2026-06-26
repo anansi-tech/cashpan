@@ -1,18 +1,22 @@
 'use client';
 
+const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '9', 10);
+const COIN_FACTOR = 10 ** COIN_DEC;
+const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
+
 interface PocketCardProps {
   type: 'liquid' | 'savings';
-  amountMist: string;
+  /** Base-unit balance string (coin-agnostic; factor set by NEXT_PUBLIC_COIN_DECIMALS). */
+  amountBase: string;
   label: string;
   sublabel?: string;
-  decimals?: number;
 }
 
-export function PocketCard({ type, amountMist, label, sublabel, decimals }: PocketCardProps) {
+export function PocketCard({ type, amountBase, label, sublabel }: PocketCardProps) {
   const isSavings = type === 'savings';
-  // Savings shows 9 decimal places (6 main + 3 ticking tail); liquid shows 4
-  const d = decimals ?? (isSavings ? 9 : 4);
-  const raw = (Number(amountMist) / 1e9).toFixed(d);
+  // Savings shows COIN_DEC places (last 3 are the ticking tail); liquid shows 2
+  const displayDec = isSavings ? COIN_DEC : 2;
+  const raw = (Number(amountBase) / COIN_FACTOR).toFixed(displayDec);
   const mainDigits = isSavings ? raw.slice(0, -3) : raw;
   const tailDigits = isSavings ? raw.slice(-3) : '';
 
@@ -92,7 +96,7 @@ export function PocketCard({ type, amountMist, label, sublabel, decimals }: Pock
       </div>
 
       <div style={{ color: 'var(--color-muted-2)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-        <span>SUI</span>
+        <span>{COIN_SYM}</span>
         {sublabel && (
           <span
             style={{

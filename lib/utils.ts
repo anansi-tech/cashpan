@@ -1,12 +1,14 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { baseToHuman } from './coin-config';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatSui(mist: string | number | bigint, decimals = 4): string {
-  return (Number(mist) / 1e9).toFixed(decimals);
+/** Format base-unit amount as a human decimal string. Reads COIN_DECIMALS from env. */
+export function formatSui(base: string | number | bigint, displayDecimals = 4): string {
+  return baseToHuman(base, displayDecimals);
 }
 
 export function shortenAddress(addr: string, chars = 6): string {

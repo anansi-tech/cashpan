@@ -7,6 +7,7 @@
  */
 
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { humanToBase, baseToHuman } from './coin-config';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
 const VAULT_ID = process.env.VAULT_ID ?? '';
@@ -31,15 +32,8 @@ export function getPayeeMap(): Record<string, string> {
   }
 }
 
-function suiToMist(sui: string): bigint {
-  const f = parseFloat(sui);
-  if (!isFinite(f) || f < 0) throw new Error(`Invalid amount: ${sui}`);
-  return BigInt(Math.round(f * 1e9));
-}
-
-function mistToSui(mist: bigint): string {
-  return (Number(mist) / 1e9).toFixed(6);
-}
+const suiToMist = humanToBase;
+const mistToSui = (base: bigint) => baseToHuman(base, 6);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
