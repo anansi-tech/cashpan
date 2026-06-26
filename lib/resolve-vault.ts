@@ -20,8 +20,19 @@ export type { VaultRecord };
  */
 export async function resolveVault(req: Request): Promise<VaultRecord> {
   const url = new URL(req.url);
-  const identityKey = url.searchParams.get('user') ?? req.headers.get('x-cashpan-user') ?? undefined;
+  // Priority: ?user= param → x-cashpan-user header → cashpan-user cookie
+  const identityKey =
+    url.searchParams.get('user') ??
+    req.headers.get('x-cashpan-user') ??
+    parseCashpanUserCookie(req.headers.get('cookie')) ??
+    undefined;
   const vault = await getActiveVault(identityKey);
   if (!vault) throw new Error('No vault registered. Run: npm run create-vault -- --identity <key>');
   return vault;
+}
+
+function parseCashpanUserCookie(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(/(?:^|;\s*)cashpan-user=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
 }

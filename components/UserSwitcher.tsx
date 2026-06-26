@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface UserSwitcherProps {
@@ -8,15 +9,23 @@ interface UserSwitcherProps {
 
 /**
  * Dev identity switcher — Block 1 only.
- * Appends ?user=<key> to navigate between registered vaults.
+ * Sets cashpan-user cookie on mount so all client-side fetches (polling,
+ * chat, execute) carry the same identity as the SSR render.
  * Replaced in Block 2 when zkLogin lands.
  */
 export function UserSwitcher({ currentUser }: UserSwitcherProps) {
   const router = useRouter();
 
-  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const key = e.target.value.trim();
-    if (!key) return;
+  // Stamp the cookie whenever the resolved user changes (including first render).
+  // This makes /api/balances polling, /api/chat, and /api/execute all pick up
+  // the right vault without prop-drilling.
+  useEffect(() => {
+    document.cookie = `cashpan-user=${encodeURIComponent(currentUser)}; path=/; SameSite=Lax`;
+  }, [currentUser]);
+
+  function switchTo(key: string) {
+    if (!key || key === currentUser) return;
+    document.cookie = `cashpan-user=${encodeURIComponent(key)}; path=/; SameSite=Lax`;
     router.push(`/?user=${encodeURIComponent(key)}`);
   }
 
@@ -33,13 +42,10 @@ export function UserSwitcher({ currentUser }: UserSwitcherProps) {
       <span style={{ opacity: 0.6 }}>dev:</span>
       <input
         defaultValue={currentUser}
-        onBlur={onChange}
+        onBlur={(e) => switchTo(e.target.value.trim())}
         onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          const key = (e.currentTarget as HTMLInputElement).value.trim();
-          if (key) router.push(`/?user=${encodeURIComponent(key)}`);
-        }
-      }}
+          if (e.key === 'Enter') switchTo((e.currentTarget as HTMLInputElement).value.trim());
+        }}
         style={{
           background: 'transparent',
           border: '1px solid var(--color-border)',
