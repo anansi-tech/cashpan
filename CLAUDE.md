@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Move (on-chain)** — run from `move/`:
 ```sh
 sui move build           # compile
-sui move test            # all tests (26 total: 17 vault + 9 yield_venue)
+sui move test            # all tests (40 total: 17 vault + 9 yield_venue + 14 test_usd)
 sui move test <test_fn>  # single test by name
 ```
 
@@ -65,3 +65,21 @@ The agent runs a `sense → decide → act` loop with no LLM on the path:
 **Keypair loading** — `ownerKeypair()` in setup iterates the full keystore at `~/.sui/sui_config/sui.keystore` and matches by `toSuiAddress() === activeAddress`. This is necessary when the keystore has multiple keys from other projects (e.g. Spice). The agent private key is stored as a Bech32 string (`suiprivk...`) written by `agentKeypair.getSecretKey()` and loaded via `Ed25519Keypair.fromSecretKey(bech32string)`.
 
 **SuiClient API** — This repo uses `@mysten/sui` v2.15.0. `SuiClient` was removed; use `SuiJsonRpcClient` from `@mysten/sui/jsonRpc`.
+
+## Switching stablecoins
+
+Everything is driven by three `.env` values — **no code changes needed**:
+
+| Variable | Testnet (default) | USDC | Sui Dollar |
+|---|---|---|---|
+| `COIN_TYPE` | `<pkg>::test_usd::TEST_USD` | `0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN` | TBD |
+| `COIN_DECIMALS` | `6` | `6` | `6` |
+| `COIN_SYMBOL` | `USD` | `USDC` | `USD` |
+
+Also set `NEXT_PUBLIC_COIN_DECIMALS` and `NEXT_PUBLIC_COIN_SYMBOL` to the same values (for client-side rendering).
+
+**To deploy on testnet with test_usd** (default): run `npm run setup` — it publishes the `test_usd` module, mints tokens to the owner, and writes all vars.
+
+**To use USDC or Sui Dollar instead**: set the three vars above, fund the vault manually via `npm run deposit -- --amount <n>`, and skip the mint step. The vault, agent, and UI adapt automatically. The `test_usd` module is published but unused.
+
+Human-decimal amounts (`BUFFER`, `BAND`) are always in whole units of the coin regardless of decimals — `BUFFER=50` always means "50 tokens".
