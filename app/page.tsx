@@ -4,6 +4,7 @@ import { getActiveVault } from '@/lib/db/vault-registry';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { ChatPanel } from '@/components/ChatPanel';
+import type { VaultTxContext } from '@/lib/vault-tx';
 import { SignIn } from '@/components/SignIn';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ProvisionVault } from '@/components/ProvisionVault';
@@ -29,6 +30,15 @@ export default async function Page() {
   }
 
   const { vaultId } = vault;
+
+  const vaultCtx: VaultTxContext = {
+    packageId: process.env.PACKAGE_ID!,
+    coinType: process.env.COIN_TYPE!,
+    vaultId: vault.vaultId,
+    ownerCapId: vault.ownerCapId,
+    venueId: process.env.VENUE_ID!,
+    userAddress: vault.payoutAddress,
+  };
 
   const [balances, earnings, activity] = await Promise.all([
     getBalances(vaultId),
@@ -141,7 +151,7 @@ export default async function Page() {
             </span>
           </div>
 
-          <ChatPanel />
+          <ChatPanel vaultCtx={vaultCtx} />
         </aside>
       </div>
     </div>

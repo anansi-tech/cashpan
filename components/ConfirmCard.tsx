@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 import type { Proposal, BlockReason } from '@/lib/propose';
+import { buildTxForProposal, type VaultTxContext } from '@/lib/vault-tx';
+import { executeTransaction } from '@/lib/execute-zklogin';
+import { getSession } from '@/lib/auth';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
 
@@ -9,6 +12,7 @@ interface ConfirmCardProps {
   proposal: Proposal;
   onSuccess: (digest: string) => void;
   onDismiss: () => void;
+  vaultCtx: VaultTxContext;
 }
 
 function blockMessage(proposal: Proposal, reason: BlockReason): string {
@@ -62,7 +66,7 @@ function ProposalDetail({ label, value, dim }: { label: string; value: string; d
   );
 }
 
-export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps) {
+export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: ConfirmCardProps) {
   const [execState, setExecState] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [digest, setDigest] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -74,23 +78,18 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss }: ConfirmCardProps
   const handleConfirm = async () => {
     setExecState('pending');
     try {
-      const res = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(proposal),
-      });
-      const data = await res.json() as { digest?: string; error?: string };
-      if (!res.ok) {
-        setErrorMsg(data.error ?? 'Execution failed');
-        setExecState('error');
-      } else {
-        setDigest(data.digest ?? '');
-        setExecState('success');
-        onSuccess(data.digest ?? '');
-        window.dispatchEvent(new CustomEvent('cashpan:refresh'));
-      }
+      const session = getSession();
+      if (!session) throw new Error('Not signed in');
+      const ctx = { ...vaultCtx, userAddress: session.address };
+      const tx = buildTxForProposal(proposal, ctx);
+      const result = await executeTransaction(tx) as { digest: string };
+      const txDigest = result.digest ?? '';
+      setDigest(txDigest);
+      setExecState('success');
+      onSuccess(txDigest);
+      window.dispatchEvent(new CustomEvent('cashpan:refresh'));
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Network error');
+      setErrorMsg(err instanceof Error ? err.message : 'Execution failed');
       setExecState('error');
     }
   };

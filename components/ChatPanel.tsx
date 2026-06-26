@@ -6,8 +6,9 @@ import type { UIMessage } from 'ai';
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { ConfirmCard } from './ConfirmCard';
 import type { Proposal } from '@/lib/propose';
+import type { VaultTxContext } from '@/lib/vault-tx';
 
-export function ChatPanel({ onRefresh }: { onRefresh?: () => void }) {
+export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vaultCtx: VaultTxContext }) {
   const [inputText, setInputText] = useState('');
   // Track which proposal tool calls have been dismissed
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -46,6 +47,7 @@ export function ChatPanel({ onRefresh }: { onRefresh?: () => void }) {
             dismissed={dismissed}
             onDismiss={(id) => setDismissed((prev) => new Set([...prev, id]))}
             onSuccess={handleSuccess}
+            vaultCtx={vaultCtx}
           />
         ))}
 
@@ -118,11 +120,13 @@ function ChatMessage({
   dismissed,
   onDismiss,
   onSuccess,
+  vaultCtx,
 }: {
   message: UIMessage;
   dismissed: Set<string>;
   onDismiss: (id: string) => void;
   onSuccess: (digest: string) => void;
+  vaultCtx: VaultTxContext;
 }) {
   const isUser = message.role === 'user';
 
@@ -172,6 +176,7 @@ function ChatMessage({
             proposal={part['output'] as Proposal}
             onDismiss={() => onDismiss(callId)}
             onSuccess={onSuccess}
+            vaultCtx={vaultCtx}
           />
         );
       })}

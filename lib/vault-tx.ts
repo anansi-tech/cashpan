@@ -41,8 +41,8 @@ export function buildSendTx(proposal: SendProposal, ctx: VaultTxContext): Transa
 
 export function buildWithdrawTx(proposal: WithdrawToMeProposal, ctx: VaultTxContext): Transaction {
   const tx = new Transaction();
-  // withdraw() sends to ctx.sender() on-chain — in the zkLogin-signed tx that's the user's address
-  tx.moveCall({
+  // withdraw() returns Coin<T> — transfer it to the user's zkLogin address
+  const [coin] = tx.moveCall({
     target: `${ctx.packageId}::vault::withdraw`,
     typeArguments: [ctx.coinType],
     arguments: [
@@ -51,6 +51,7 @@ export function buildWithdrawTx(proposal: WithdrawToMeProposal, ctx: VaultTxCont
       tx.pure.u64(BigInt(proposal.amountMist)),
     ],
   });
+  tx.transferObjects([coin], tx.pure.address(ctx.userAddress));
   return tx;
 }
 
