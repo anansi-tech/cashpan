@@ -365,6 +365,68 @@ public fun agent_send<T>(
     transfer::public_transfer(coin, recipient);
 }
 
+/// OwnerCap-gated sweep/topup — unrestricted (no per-tx or daily caps).
+///
+/// Routing mirrors `rebalance`: SWEEP deposits to venue, TOPUP withdraws.
+/// Emits the same RebalanceEvent so event listeners see owner and agent moves identically.
+/// This is what the user calls from their zkLogin-signed transaction in Block 4+.
+public fun owner_rebalance<T>(
+    owner_cap: &OwnerCap,
+    vault: &mut Vault<T>,
+    venue: &mut YieldVenue<T>,
+    direction: u8,
+    amount: u64,
+    ctx: &mut TxContext,
+) {
+    assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
+    assert!(object::id(venue) == vault.venue_id, EWrongVenue);
+
+    let current_epoch = ctx.epoch();
+    let savings_value_after: u64;
+
+    if (direction == SWEEP) {
+        assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
+        let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
+
+        if (option::is_none(&vault.savings_position)) {
+            let pos = yield_venue::deposit(venue, coin, ctx);
+            option::fill(&mut vault.savings_position, pos);
+        } else {
+            yield_venue::extend_position(venue, option::borrow_mut(&mut vault.savings_position), coin, ctx);
+        };
+
+        savings_value_after = yield_venue::current_value(
+            venue, option::borrow(&vault.savings_position), ctx,
+        );
+    } else if (direction == TOPUP) {
+        assert!(option::is_some(&vault.savings_position), ENoSavingsPosition);
+        let position = option::borrow_mut(&mut vault.savings_position);
+        let coin = yield_venue::withdraw(venue, position, amount, ctx);
+        balance::join(&mut vault.liquid, coin::into_balance(coin));
+
+        if (yield_venue::position_principal(option::borrow(&vault.savings_position)) == 0) {
+            let empty = option::extract(&mut vault.savings_position);
+            yield_venue::destroy_zero_position(empty);
+            savings_value_after = 0;
+        } else {
+            savings_value_after = yield_venue::current_value(
+                venue, option::borrow(&vault.savings_position), ctx,
+            );
+        };
+    } else {
+        abort EInvalidDirection
+    };
+
+    event::emit(RebalanceEvent {
+        vault_id: object::id(vault),
+        direction,
+        amount,
+        liquid_after: balance::value(&vault.liquid),
+        savings_value_after,
+        epoch: current_epoch,
+    });
+}
+
 /// Move `amount` between liquid and the yield venue in the given `direction`.
 ///
 /// SWEEP (0): splits `amount` from liquid → venue deposit (extends or creates position).

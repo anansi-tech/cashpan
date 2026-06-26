@@ -851,6 +851,78 @@ fun test_agent_send_aborts_if_exceeds_outflow_per_tx_cap() {
     ts::end(s);
 }
 
+// ============ Block 4: owner_rebalance ============
+
+#[test]
+fun test_owner_rebalance_sweep_decreases_liquid() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::owner_rebalance(&owner_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
+        assert!(vault::liquid_balance(&vault) == FUND_AMOUNT - 500, 0);
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
+#[test]
+fun test_owner_rebalance_topup_restores_liquid() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::owner_rebalance(&owner_cap, &mut vault, &mut venue, vault::sweep(), 500, ts::ctx(&mut s));
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+        ts::return_to_sender(&s, owner_cap);
+    };
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        let liquid_before = vault::liquid_balance(&vault);
+        vault::owner_rebalance(&owner_cap, &mut vault, &mut venue, vault::topup(), 200, ts::ctx(&mut s));
+        assert!(vault::liquid_balance(&vault) == liquid_before + 200, 0);
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EInsufficientLiquid)]
+fun test_owner_rebalance_sweep_aborts_if_insufficient_liquid() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let mut venue: YieldVenue<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        // Try to sweep more than available liquid
+        vault::owner_rebalance(&owner_cap, &mut vault, &mut venue, vault::sweep(), FUND_AMOUNT + 1, ts::ctx(&mut s));
+        ts::return_shared(vault);
+        ts::return_shared(venue);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::end(s);
+}
+
 #[test]
 #[expected_failure(abort_code = vault::EAgentRevoked)]
 fun test_revoked_agent_cannot_send() {
