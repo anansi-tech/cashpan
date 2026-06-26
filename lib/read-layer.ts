@@ -13,6 +13,14 @@ import { baseToHuman, COIN_SYMBOL } from './coin-config';
 
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
 const VENUE_ID = process.env.VENUE_ID ?? '';
+
+// Reverse map: address → payee name, built from PAYEES env var at module load time.
+const ADDRESS_TO_PAYEE: Record<string, string> = (() => {
+  try {
+    const payees: Record<string, string> = JSON.parse(process.env.PAYEES ?? '{}');
+    return Object.fromEntries(Object.entries(payees).map(([name, addr]) => [addr.toLowerCase(), name]));
+  } catch { return {}; }
+})();
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 
 function makeClient(): SuiJsonRpcClient {
@@ -212,10 +220,10 @@ export async function getAgentActivity(
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
         const to = String(json.to ?? '');
-        const short = to.length > 12 ? `${to.slice(0, 6)}…${to.slice(-4)}` : to;
+        const toLabel = ADDRESS_TO_PAYEE[to.toLowerCase()] ?? (to.length > 12 ? `${to.slice(0, 6)}…${to.slice(-4)}` : to);
         const text = byAgent
-          ? `Agent sent ${display} ${COIN_SYMBOL} to ${short}`
-          : `Sent ${display} ${COIN_SYMBOL} to ${short}`;
+          ? `Agent sent ${display} ${COIN_SYMBOL} to ${toLabel}`
+          : `Sent ${display} ${COIN_SYMBOL} to ${toLabel}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
       } else if (ev.type.endsWith('::DepositEvent')) {
         const amount = String(json.amount ?? '0');
