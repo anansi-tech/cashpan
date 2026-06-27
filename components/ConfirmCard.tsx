@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { Proposal, BlockReason } from '@/lib/propose';
 import { buildTxForProposal, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction } from '@/lib/execute-zklogin';
@@ -29,11 +29,11 @@ function blockMessage(proposal: Proposal, reason: BlockReason): string {
 
   switch (reason) {
     case 'not_a_payee':
-      return `${label} isn't in your payee list. Add them to your PAYEES config to enable sends to them.`;
+      return `${label} isn't in your contacts. Add them in the Contacts tab to send to them by name.`;
     case 'insufficient_liquid':
-      return `Spend pocket only has ${liquid} ${COIN_SYM} — not enough for this.`;
+      return `Your spend pocket only has ${liquid} ${COIN_SYM} — not enough for this.`;
     case 'no_savings':
-      return `Savings pocket only has ${savings ?? '?'} ${COIN_SYM} — not enough to top up that amount.`;
+      return `Your save pocket only has ${savings ?? '?'} ${COIN_SYM} — not enough to move that amount.`;
   }
 }
 
@@ -52,6 +52,31 @@ function ProposalDetail({ label, value, dim }: { label: string; value: string; d
         {value}
       </span>
     </div>
+  );
+}
+
+function CopyableAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(address).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [address]);
+  const display = `${address.slice(0, 8)}…${address.slice(-6)}`;
+  return (
+    <button
+      onClick={copy}
+      title={`Copy address: ${address}`}
+      style={{
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        color: copied ? 'var(--color-savings)' : 'var(--color-muted-2)',
+        fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600,
+        transition: 'color 0.15s',
+      }}
+    >
+      {copied ? '✓ copied' : display}
+    </button>
   );
 }
 
@@ -138,38 +163,36 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
             <>
               <ProposalDetail label="To" value={proposal.payeeLabel} />
               {proposal.recipient && (
-                <ProposalDetail
-                  label="Address"
-                  value={`${proposal.recipient.slice(0, 8)}…${proposal.recipient.slice(-6)}`}
-                  dim
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                  <span style={{ color: 'var(--color-muted)' }}>Address</span>
+                  <CopyableAddress address={proposal.recipient} />
+                </div>
               )}
-              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'withdrawToMe' && (
             <>
-              <ProposalDetail
-                label="To"
-                value={`${proposal.payoutAddress.slice(0, 8)}…${proposal.payoutAddress.slice(-6)}`}
-                dim
-              />
-              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                <span style={{ color: 'var(--color-muted)' }}>To</span>
+                <CopyableAddress address={proposal.payoutAddress} />
+              </div>
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'sweep' && (
             <>
-              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Savings" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Save" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'topup' && (
             <>
-              <ProposalDetail label="Savings" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Spend pocket" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Save" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
             </>
           )}
         </div>
