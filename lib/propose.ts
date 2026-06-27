@@ -26,12 +26,9 @@ function readBalance(field: unknown): bigint {
   return BigInt(String(field ?? '0'));
 }
 
-export function getPayeeMap(): Record<string, string> {
-  try {
-    return JSON.parse(process.env.PAYEES ?? '{}');
-  } catch {
-    return {};
-  }
+/** Build a normalised label→address map from the user's saved contacts. */
+export function buildContactMap(contacts: Array<{ label: string; address: string }>): Record<string, string> {
+  return Object.fromEntries(contacts.map((c) => [c.label.toLowerCase(), c.address]));
 }
 
 const suiToMist = humanToBase;
@@ -140,10 +137,11 @@ export async function proposeSend(
   amountSuiStr: string,
   payeeLabel: string,
   vaultId: string,
+  contactMap: Record<string, string> = {},
 ): Promise<SendProposal> {
-  const [vault, payees] = await Promise.all([fetchVaultState(vaultId), Promise.resolve(getPayeeMap())]);
+  const vault = await fetchVaultState(vaultId);
   const amountMist = suiToMist(amountSuiStr);
-  const recipient = payees[payeeLabel.toLowerCase()];
+  const recipient = contactMap[payeeLabel.toLowerCase()];
 
   const base: SendProposal = {
     action: 'send',

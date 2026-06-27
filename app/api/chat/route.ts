@@ -18,27 +18,23 @@ import {
   proposeWithdrawToMe,
   proposeSweep,
   proposeTopup,
-  getPayeeMap,
+  buildContactMap,
 } from '@/lib/propose';
 import { resolveVault } from '@/lib/resolve-vault';
 
-function buildSystemPrompt(): string {
-  const payees = getPayeeMap();
-  const labels = Object.keys(payees);
-  const payeeList =
-    labels.length > 0
-      ? `Known payees (these are the only valid labels for proposeSend): ${labels.join(', ')}.`
-      : 'No payees are configured yet — proposeSend will always block with "not_a_payee" until the user adds entries to their PAYEES env config.';
+function buildSystemPrompt(contactNames: string[]): string {
+  const contactList =
+    contactNames.length > 0
+      ? `Saved contacts (these are the only valid labels for proposeSend): ${contactNames.join(', ')}.`
+      : 'No contacts saved yet. If the user asks to send to someone by name, call proposeSend — it will return a "not_a_payee" block and you can suggest they add the contact in the Contacts tab.';
 
   return `You are the CashPan money assistant — warm, plain, and concise.
 
 CashPan has two pockets:
-- Spend pocket: liquid funds ready to use
-- Savings pocket: funds earning yield, managed automatically by the agent
+- Spend: funds ready to use
+- Save: funds earning yield
 
-The agent sweeps excess liquid to savings and tops up when the spend pocket runs low.
-
-${payeeList}
+${contactList}
 
 ## Reading data
 Call getBalances, getEarnings, getAgentActivity, or getConfig whenever you need live data. Never guess balances from memory.
@@ -48,8 +44,8 @@ When the user's intent to move money is clear, immediately call the matching pro
 
 - proposeSend({ amount, payeeLabel }) — "send mom $10", "pay Alex 5"
 - proposeWithdrawToMe({ amount }) — "give me back $10", "withdraw to my wallet"
-- proposeSweep({ amount? }) — "put aside $50", "sweep everything", "move to savings"
-- proposeTopup({ amount }) — "move $20 to spending", "top up my spend pocket"
+- proposeSweep({ amount? }) — "put aside $50", "save $20", "move to savings"
+- proposeTopup({ amount }) — "move $20 to spending", "top up", "I need cash"
 
 Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak dollars.
 
@@ -59,21 +55,22 @@ Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak 
 
 ## Hard rules
 - All amounts are ${COIN_SYMBOL}. Speak in dollars ($10.00, $50, etc.), never in raw base units.
-- Never sign or submit. The propose tools only compute; tapping Confirm is what executes.
-- Owner cap, owner key: never referenced here. Agent cap only for chat moves.`;
+- Never sign or submit. The propose tools only compute; tapping Confirm is what executes.`;
 }
 
 export async function POST(req: Request) {
-  // Clone the request so we can both parse JSON and pass req to resolveVault
-  // (resolveVault only reads headers/URL, so the original is fine for it).
   const [reqForVault, reqForBody] = [req, req.clone()];
   const { messages } = await reqForBody.json();
   const vault = await resolveVault(reqForVault);
   const { vaultId } = vault;
 
+  const contacts = vault.contacts ?? [];
+  const contactMap = buildContactMap(contacts);
+  const contactNames = contacts.map((c) => c.label);
+
   const result = streamText({
     model: openai('gpt-4o-mini'),
-    system: buildSystemPrompt(),
+    system: buildSystemPrompt(contactNames),
     messages: await convertToModelMessages(messages),
     stopWhen: stepCountIs(5),
     tools: {
@@ -173,7 +170,7 @@ export async function POST(req: Request) {
           additionalProperties: false,
         }),
         execute: async ({ amount, payeeLabel }: { amount: string; payeeLabel: string }) =>
-          proposeSend(amount, payeeLabel, vaultId),
+          proposeSend(amount, payeeLabel, vaultId, contactMap),
       }),
 
       proposeWithdrawToMe: tool({
