@@ -1,33 +1,44 @@
 /**
- * Vault registry — maps identityKey → vault + cap IDs.
+ * Vault registry — maps identityKey → vault + cap IDs + per-user contacts.
  *
- * identityKey is a dev-placeholder string in Block 1 (e.g. "alice", "bob").
- * Block 2 swaps it for a zkLogin `sub` — only this file changes.
+ * identityKey is the zkLogin `sub`.
  *
  * Fields reserved for later blocks:
  *   eventCursor  — Block 3: durable deposit-event cursor per vault
- *   payees       — later: per-user label → address map
  */
 
 import mongoose, { Schema, Model, Document } from 'mongoose';
 import { connectDB } from './connection';
 
+export interface Contact {
+  label: string;
+  address: string;
+  createdAt: Date;
+}
+
 export interface VaultRecord {
   identityKey: string;
   vaultId: string;
   ownerCapId: string;
-  agentCapId?: string;       // Block 2: not issued; Block 4+ Autopilot
+  agentCapId?: string;
   payoutAddress: string;
   coinType: string;
-  salt?: string;             // zkLogin salt (base64); stored for audit / address re-derivation
+  salt?: string;
   createdAt: Date;
-  // Reserved for Block 3:
   eventCursor?: string;
-  // Reserved for payee management:
-  payees?: Record<string, string>;
+  contacts?: Contact[];
 }
 
 type VaultDoc = VaultRecord & Document;
+
+const ContactSchema = new Schema<Contact>(
+  {
+    label:     { type: String, required: true },
+    address:   { type: String, required: true },
+    createdAt: { type: Date, default: () => new Date() },
+  },
+  { _id: false },
+);
 
 const VaultSchema = new Schema<VaultDoc>({
   identityKey:   { type: String, required: true, unique: true, index: true },
@@ -39,7 +50,7 @@ const VaultSchema = new Schema<VaultDoc>({
   salt:          { type: String },
   createdAt:     { type: Date, default: () => new Date() },
   eventCursor:   { type: String },
-  payees:        { type: Map, of: String },
+  contacts:      { type: [ContactSchema], default: [] },
 });
 
 function getModel(): Model<VaultDoc> {
@@ -71,4 +82,34 @@ export async function listVaults(): Promise<VaultRecord[]> {
 
 export async function getActiveVault(identityKey: string): Promise<VaultRecord | null> {
   return getByIdentity(identityKey);
+}
+
+// ─── Contacts (per-user address book) ────────────────────────────────────────
+
+const SUI_ADDRESS_RE = /^0x[0-9a-fA-F]{64}$/;
+
+export async function listContacts(identityKey: string): Promise<Contact[]> {
+  await connectDB();
+  const doc = await getModel().findOne({ identityKey }).select('contacts').lean();
+  return (doc as VaultRecord | null)?.contacts ?? [];
+}
+
+export async function addContact(identityKey: string, label: string, address: string): Promise<Contact> {
+  if (!label.trim()) throw new Error('Label is required');
+  if (!SUI_ADDRESS_RE.test(address.trim())) throw new Error('Invalid Sui address (must be 0x + 64 hex chars)');
+  await connectDB();
+  const contact: Contact = { label: label.trim(), address: address.trim(), createdAt: new Date() };
+  await getModel().updateOne(
+    { identityKey },
+    { $push: { contacts: contact } },
+  );
+  return contact;
+}
+
+export async function removeContact(identityKey: string, label: string): Promise<void> {
+  await connectDB();
+  await getModel().updateOne(
+    { identityKey },
+    { $pull: { contacts: { label } } },
+  );
 }
