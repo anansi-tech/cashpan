@@ -3,7 +3,7 @@ import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
-import { ChatPanel } from '@/components/ChatPanel';
+import { AsidePanel } from '@/components/AsidePanel';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import { SignIn } from '@/components/SignIn';
 import { SignOutButton } from '@/components/SignOutButton';
@@ -123,38 +123,9 @@ export default async function Page() {
           <ActivityFeed initial={activity} />
         </main>
 
-        {/* Right: Money Talks chat */}
-        <aside
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            minHeight: 0,
-          }}
-        >
-          <div
-            style={{
-              padding: '0.875rem 1.25rem',
-              borderBottom: '1px solid var(--color-border)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ fontSize: '0.85rem' }}>💬</span>
-            <span
-              style={{
-                color: 'var(--color-text)',
-                fontWeight: 600,
-                fontSize: '0.875rem',
-              }}
-            >
-              Money Talks
-            </span>
-          </div>
-
-          <ChatPanel vaultCtx={vaultCtx} />
+        {/* Right: Money Talks + Contacts */}
+        <aside style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+          <AsidePanel vaultCtx={vaultCtx} />
         </aside>
       </div>
     </div>
