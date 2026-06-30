@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { relativeTime } from '@/lib/utils';
 import type { ActivityEvent } from '@/lib/read-layer';
+import { useVaultData } from './VaultDataProvider';
 
 function eventIcon(ev: ActivityEvent): string {
   if (ev.type === 'rebalance') return ev.direction === 0 ? '↗' : '↙';
@@ -15,37 +16,11 @@ function eventColor(ev: ActivityEvent): string {
   return 'var(--color-muted)';
 }
 
-interface ActivityFeedProps {
-  initial: ActivityEvent[];
-}
-
-export function ActivityFeed({ initial }: ActivityFeedProps) {
-  const [events, setEvents] = useState<ActivityEvent[]>(initial);
+export function ActivityFeed() {
+  const { activity: events } = useVaultData();
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
 
-  const poll = useCallback(async () => {
-    try {
-      const res = await fetch('/api/activity?limit=20', { cache: 'no-store' });
-      if (!res.ok) return;
-      const data: ActivityEvent[] = await res.json();
-      setEvents(data);
-      setUpdatedAt(Date.now());
-    } catch {
-      // silent
-    }
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(poll, 30_000);
-    return () => clearInterval(interval);
-  }, [poll]);
-
-  // Immediate refresh when a transaction is confirmed via the chat
-  useEffect(() => {
-    const handler = () => { void poll(); };
-    window.addEventListener('cashpan:refresh', handler);
-    return () => window.removeEventListener('cashpan:refresh', handler);
-  }, [poll]);
+  useEffect(() => { setUpdatedAt(Date.now()); }, [events]);
 
   return (
     <div

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import type { BrainProposal } from '@/lib/brain';
 import { buildDepositTx, buildSweepFromBrain, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction } from '@/lib/execute-zklogin';
+import { useVaultData } from './VaultDataProvider';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
@@ -18,24 +19,8 @@ function proposalKey(p: BrainProposal): string {
 }
 
 export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const [proposals, setProposals] = useState<BrainProposal[]>([]);
+  const { proposals, refresh } = useVaultData();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-
-  const fetchProposals = useCallback(async () => {
-    try {
-      const res = await fetch('/api/proposals');
-      if (!res.ok) return;
-      const data = (await res.json()) as BrainProposal[];
-      setProposals(Array.isArray(data) ? data : []);
-    } catch { /* degrade silently */ }
-  }, []);
-
-  useEffect(() => {
-    void fetchProposals();
-    const handler = () => void fetchProposals();
-    window.addEventListener('cashpan:refresh', handler);
-    return () => window.removeEventListener('cashpan:refresh', handler);
-  }, [fetchProposals]);
 
   const dismiss = useCallback((key: string) => {
     setDismissed((prev) => new Set([...prev, key]));
@@ -54,7 +39,7 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           onDismiss={() => dismiss(proposalKey(p))}
           onSuccess={() => {
             dismiss(proposalKey(p));
-            window.dispatchEvent(new Event('cashpan:refresh'));
+            refresh();
           }}
         />
       ))}

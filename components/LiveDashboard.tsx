@@ -3,18 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { CashPanVisual } from './CashPanVisual';
 import { PocketCard } from './PocketCard';
-import type { Balances, Earnings } from '@/lib/read-layer';
+import { useVaultData } from './VaultDataProvider';
 
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '9', 10);
 const COIN_FACTOR = 10 ** COIN_DEC;
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
-
-interface LiveDashboardProps {
-  initial: {
-    balances: Balances;
-    earnings: Earnings;
-  };
-}
 
 /**
  * Projects savings value forward in wall-clock time between on-chain polls.
@@ -36,26 +29,27 @@ function fmt(base: number, d = 2): string {
   return (base / COIN_FACTOR).toFixed(d);
 }
 
-export function LiveDashboard({ initial }: LiveDashboardProps) {
+export function LiveDashboard() {
+  const { balances, earnings } = useVaultData();
+
   const authRef = useRef({
-    liquid: Number(initial.balances.liquid),
-    savingsPrincipal: Number(initial.balances.savingsPrincipal),
-    savingsValue: Number(initial.balances.savingsValue),
-    rateBps: Number(initial.balances.rateBps),
-    periodEpochs: Number(initial.balances.periodEpochs),
-    currentEpoch: initial.balances.currentEpoch,
+    liquid: Number(balances?.liquid ?? 0),
+    savingsPrincipal: Number(balances?.savingsPrincipal ?? 0),
+    savingsValue: Number(balances?.savingsValue ?? 0),
+    rateBps: Number(balances?.rateBps ?? 0),
+    periodEpochs: Number(balances?.periodEpochs ?? 1),
+    currentEpoch: balances?.currentEpoch ?? '0',
     pollTime: Date.now(),
   });
 
   const [displayed, setDisplayed] = useState({
-    liquid: Number(initial.balances.liquid),
-    savingsValue: Number(initial.balances.savingsValue),
-    savingsPrincipal: Number(initial.balances.savingsPrincipal),
-    currentEpoch: initial.balances.currentEpoch,
+    liquid: Number(balances?.liquid ?? 0),
+    savingsValue: Number(balances?.savingsValue ?? 0),
+    savingsPrincipal: Number(balances?.savingsPrincipal ?? 0),
+    currentEpoch: balances?.currentEpoch ?? '0',
   });
 
   const rafRef = useRef<number>(0);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const animate = useCallback(() => {
     const auth = authRef.current;
@@ -78,34 +72,19 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
     return () => cancelAnimationFrame(rafRef.current);
   }, [animate]);
 
-  const poll = useCallback(async () => {
-    try {
-      const res = await fetch('/api/balances', { cache: 'no-store' });
-      if (!res.ok) return;
-      const data: Balances = await res.json();
-      authRef.current = {
-        liquid: Number(data.liquid),
-        savingsPrincipal: Number(data.savingsPrincipal),
-        savingsValue: Number(data.savingsValue),
-        rateBps: Number(data.rateBps),
-        periodEpochs: Number(data.periodEpochs),
-        currentEpoch: data.currentEpoch,
-        pollTime: Date.now(),
-      };
-      setDisplayed((prev) => ({ ...prev, liquid: Number(data.liquid), savingsPrincipal: Number(data.savingsPrincipal) }));
-    } catch { /* silent */ }
-  }, []);
-
   useEffect(() => {
-    pollRef.current = setInterval(poll, 5_000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [poll]);
-
-  useEffect(() => {
-    const handler = () => { void poll(); };
-    window.addEventListener('cashpan:refresh', handler);
-    return () => window.removeEventListener('cashpan:refresh', handler);
-  }, [poll]);
+    if (!balances) return;
+    authRef.current = {
+      liquid: Number(balances.liquid),
+      savingsPrincipal: Number(balances.savingsPrincipal),
+      savingsValue: Number(balances.savingsValue),
+      rateBps: Number(balances.rateBps),
+      periodEpochs: Number(balances.periodEpochs),
+      currentEpoch: balances.currentEpoch,
+      pollTime: Date.now(),
+    };
+    setDisplayed((prev) => ({ ...prev, liquid: Number(balances.liquid), savingsPrincipal: Number(balances.savingsPrincipal) }));
+  }, [balances]);
 
   const liquid = displayed.liquid;
   const savingsValue = displayed.savingsValue;
@@ -116,7 +95,7 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
   const accrued = Math.max(0, savingsValue - principal);
   const accruedLabel = accrued > 0 ? `+$${fmt(accrued, 4)} earned` : undefined;
 
-  const aprPct = (Number(initial.earnings.aprBps) / 100).toFixed(1).replace(/\.0$/, '');
+  const aprPct = earnings ? (Number(earnings.aprBps) / 100).toFixed(1).replace(/\.0$/, '') : '–';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>

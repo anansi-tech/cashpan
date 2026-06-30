@@ -11,6 +11,8 @@ import { ProvisionVault } from '@/components/ProvisionVault';
 import { AccountBar } from '@/components/AccountBar';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ProposalBanner } from '@/components/ProposalBanner';
+import { VaultDataProvider } from '@/components/VaultDataProvider';
+import { SettingsPanel } from '@/components/SettingsPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,28 +114,31 @@ export default async function Page() {
       <AccountBar vaultId={vault.vaultId} address={vault.payoutAddress} />
 
       {/* Two-column layout fills remaining height */}
-      <div className="dashboard-grid" style={{ flex: 1 }}>
-        {/* Left: live dashboard + activity feed */}
-        <main
-          style={{
-            padding: '1.25rem 1.5rem',
-            overflowY: 'auto',
-            borderRight: '1px solid var(--color-border)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0',
-          }}
-        >
-          <ProposalBanner vaultCtx={vaultCtx} />
-          <LiveDashboard initial={{ balances, earnings }} />
-          <ActivityFeed initial={activity} />
-        </main>
+      <VaultDataProvider initial={{ balances, earnings, activity }}>
+        <div className="dashboard-grid" style={{ flex: 1 }}>
+          {/* Left: live dashboard + activity feed */}
+          <main
+            style={{
+              padding: '1.25rem 1.5rem',
+              overflowY: 'auto',
+              borderRight: '1px solid var(--color-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0',
+            }}
+          >
+            <ProposalBanner vaultCtx={vaultCtx} />
+            <LiveDashboard />
+            <ActivityFeed />
+            <SettingsPanel />
+          </main>
 
-        {/* Right: Money Talks + Contacts */}
-        <aside style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-          <AsidePanel vaultCtx={vaultCtx} />
-        </aside>
-      </div>
+          {/* Right: Money Talks + Contacts */}
+          <aside style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+            <AsidePanel vaultCtx={vaultCtx} />
+          </aside>
+        </div>
+      </VaultDataProvider>
     </div>
   );
 }

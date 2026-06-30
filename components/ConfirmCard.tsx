@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { Proposal, BlockReason } from '@/lib/propose';
+import { useVaultData } from './VaultDataProvider';
 import { buildTxForProposal, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction } from '@/lib/execute-zklogin';
 import { getSession } from '@/lib/auth';
@@ -139,6 +140,7 @@ function Spinner() {
 }
 
 export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: ConfirmCardProps) {
+  const { refresh } = useVaultData();
   const [execState, setExecState] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [digest, setDigest] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -164,7 +166,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
       setDigest(result.digest ?? '');
       setExecState('success');
       onSuccess(result.digest ?? '');
-      window.dispatchEvent(new CustomEvent('cashpan:refresh'));
+      refresh();
     } catch (err) {
       setErrorMsg(friendlyError(err instanceof Error ? err.message : ''));
       setExecState('error');

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { getSession } from '@/lib/auth';
 import { executeTransaction } from '@/lib/execute-zklogin';
 import { Transaction } from '@mysten/sui/transactions';
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import type { VaultTxContext } from '@/lib/vault-tx';
+import type { WalletCoin } from '@/lib/brain';
+import { useVaultData } from './VaultDataProvider';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
@@ -42,16 +43,7 @@ function CopyChip({ value, label }: { value: string; label: string }) {
   );
 }
 
-interface OwnedCoin { coinObjectId: string; balance: string; }
-
-async function fetchOwnedCoins(address: string, coinType: string): Promise<OwnedCoin[]> {
-  const network = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet') as 'testnet';
-  const client = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network), network });
-  const result = await client.getCoins({ owner: address, coinType });
-  return result.data.map((c) => ({ coinObjectId: c.coinObjectId, balance: c.balance }));
-}
-
-function buildDepositTx(coins: OwnedCoin[], ctx: VaultTxContext): Transaction {
+function buildDepositTx(coins: WalletCoin[], ctx: VaultTxContext): Transaction {
   const tx = new Transaction();
   if (coins.length > 1) {
     tx.mergeCoins(
@@ -68,13 +60,13 @@ function buildDepositTx(coins: OwnedCoin[], ctx: VaultTxContext): Transaction {
 }
 
 export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
+  const { walletCoins, isLoading, refresh } = useVaultData();
   // Read address in useEffect — getSession() reads sessionStorage which is
   // unavailable during SSR/hydration, so calling it at render time always
   // returns null and the QR effect never fires.
   const [address, setAddress] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [ownedCoins, setOwnedCoins] = useState<OwnedCoin[] | null>(null);
-  const [depositState, setDepositState] = useState<'idle' | 'loading' | 'depositing' | 'success' | 'error'>('idle');
+  const [depositState, setDepositState] = useState<'idle' | 'depositing' | 'success' | 'error'>('idle');
   const [depositError, setDepositError] = useState('');
   const [depositDigest, setDepositDigest] = useState('');
 
@@ -95,34 +87,16 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     });
   }, [address]);
 
-  // Check for owned coins the user can deposit
-  const checkWallet = useCallback(async () => {
-    if (!address || !vaultCtx.coinType) return;
-    setDepositState('loading');
-    try {
-      const coins = await fetchOwnedCoins(address, vaultCtx.coinType);
-      setOwnedCoins(coins);
-      setDepositState('idle');
-    } catch {
-      setOwnedCoins([]);
-      setDepositState('idle');
-    }
-  }, [address, vaultCtx.coinType]);
-
-  useEffect(() => { void checkWallet(); }, [checkWallet]);
-
   const handleDeposit = async () => {
-    if (!ownedCoins || ownedCoins.length === 0) return;
+    if (walletCoins.length === 0) return;
     setDepositState('depositing');
     setDepositError('');
     try {
-      const tx = buildDepositTx(ownedCoins, vaultCtx);
+      const tx = buildDepositTx(walletCoins, vaultCtx);
       const result = await executeTransaction(tx) as { digest: string };
       setDepositDigest(result.digest ?? '');
       setDepositState('success');
-      window.dispatchEvent(new CustomEvent('cashpan:refresh'));
-      // Re-check wallet after deposit (coins should be gone)
-      setTimeout(() => void checkWallet(), 2000);
+      refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message.toLowerCase() : '';
       const friendly = msg.includes('sponsor') ? "Couldn't sponsor the transaction — try again."
@@ -133,7 +107,7 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     }
   };
 
-  const totalOwned = ownedCoins?.reduce((sum, c) => sum + BigInt(c.balance), 0n) ?? 0n;
+  const totalOwned = walletCoins.reduce((sum, c) => sum + BigInt(c.balance), 0n);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '1.5rem 1.25rem', gap: '1.5rem' }}>
@@ -176,17 +150,17 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           If you've received {COIN_SYM} to your address, tap below to move it into your Spend pocket.
         </div>
 
-        {depositState === 'loading' && (
+        {isLoading && (
           <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)' }}>Checking your wallet…</div>
         )}
 
-        {depositState !== 'loading' && ownedCoins !== null && ownedCoins.length === 0 && depositState !== 'success' && (
+        {!isLoading && walletCoins.length === 0 && depositState !== 'success' && (
           <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
             No {COIN_SYM} found in your wallet yet.
           </div>
         )}
 
-        {depositState !== 'loading' && ownedCoins !== null && ownedCoins.length > 0 && depositState !== 'success' && (
+        {!isLoading && walletCoins.length > 0 && depositState !== 'success' && (
           <>
             <div style={{ fontSize: '0.82rem', color: 'var(--color-savings)', fontWeight: 600 }}>
               {baseToHuman(totalOwned.toString())} {COIN_SYM} available in your wallet

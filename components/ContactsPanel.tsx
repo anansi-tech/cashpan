@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-
-interface Contact { label: string; address: string; createdAt: string; }
+import { useState } from 'react';
+import { useVaultData } from './VaultDataProvider';
+import type { Contact } from './VaultDataProvider';
 
 const SUI_RE = /^0x[0-9a-fA-F]{64}$/;
 const short = (addr: string) => `${addr.slice(0, 8)}…${addr.slice(-6)}`;
@@ -49,26 +49,11 @@ function SkeletonRow() {
 }
 
 export function ContactsPanel() {
-  const [contacts, setContacts] = useState<Contact[] | null>(null); // null = loading
-  const [loadError, setLoadError] = useState('');
+  const { contacts, isLoading, refresh } = useVaultData();
   const [label, setLabel] = useState('');
   const [address, setAddress] = useState('');
   const [adding, setAdding] = useState(false);
   const [apiError, setApiError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoadError('');
-    try {
-      const res = await fetch('/api/contacts');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setContacts(await res.json());
-    } catch {
-      setLoadError('Could not load contacts. Check your connection.');
-      setContacts([]);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   const addressError = address.trim() && !SUI_RE.test(address.trim())
     ? 'Must be 0x followed by 64 hex characters'
@@ -90,7 +75,7 @@ export function ContactsPanel() {
       } else {
         setLabel('');
         setAddress('');
-        await load();
+        refresh();
       }
     } catch {
       setApiError('Network issue. Please try again.');
@@ -105,10 +90,8 @@ export function ContactsPanel() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: lbl }),
     });
-    await load();
+    refresh();
   };
-
-  const isLoading = contacts === null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -120,17 +103,7 @@ export function ContactsPanel() {
             <SkeletonRow />
             <SkeletonRow />
           </div>
-        ) : loadError ? (
-          <div style={{ textAlign: 'center', padding: '2rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
-            <div style={{ color: 'rgba(252,165,165,0.9)', fontSize: '0.85rem' }}>{loadError}</div>
-            <button
-              onClick={() => { setContacts(null); void load(); }}
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)', borderRadius: '0.5rem', padding: '0.5rem 1rem', fontSize: '0.82rem', cursor: 'pointer', minHeight: '40px' }}
-            >
-              Retry
-            </button>
-          </div>
-        ) : contacts!.length === 0 ? (
+        ) : contacts.length === 0 ? (
           <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '3rem 1rem', lineHeight: 1.7 }}>
             <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>📋</div>
             <div>No contacts yet.</div>
@@ -140,7 +113,7 @@ export function ContactsPanel() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {contacts!.map((c) => (
+            {contacts.map((c) => (
               <div
                 key={c.label}
                 style={{
