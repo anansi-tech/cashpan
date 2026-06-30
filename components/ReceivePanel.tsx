@@ -68,21 +68,30 @@ function buildDepositTx(coins: OwnedCoin[], ctx: VaultTxContext): Transaction {
 }
 
 export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const session = getSession();
-  const address = session?.address ?? '';
-
+  // Read address in useEffect — getSession() reads sessionStorage which is
+  // unavailable during SSR/hydration, so calling it at render time always
+  // returns null and the QR effect never fires.
+  const [address, setAddress] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [ownedCoins, setOwnedCoins] = useState<OwnedCoin[] | null>(null);
   const [depositState, setDepositState] = useState<'idle' | 'loading' | 'depositing' | 'success' | 'error'>('idle');
   const [depositError, setDepositError] = useState('');
   const [depositDigest, setDepositDigest] = useState('');
 
-  // Generate QR code
+  useEffect(() => {
+    const session = getSession();
+    setAddress(session?.address ?? '');
+  }, []);
+
+  // Generate QR code once address is known
   useEffect(() => {
     if (!address) return;
-    import('qrcode').then((QRCode) => {
-      QRCode.default.toDataURL(address, { width: 200, margin: 2, color: { dark: '#f1f5f9', light: '#0f172a' } })
-        .then(setQrDataUrl);
+    import('qrcode').then((mod) => {
+      const QRCode = mod.default ?? mod;
+      (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
+        .toDataURL(address, { width: 200, margin: 2, color: { dark: '#f1f5f9', light: '#0f172a' } })
+        .then(setQrDataUrl)
+        .catch(() => { /* leave placeholder visible on error */ });
     });
   }, [address]);
 
