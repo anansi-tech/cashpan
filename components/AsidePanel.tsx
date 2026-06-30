@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChatPanel } from './ChatPanel';
 import { ContactsPanel } from './ContactsPanel';
+import { ReceivePanel } from './ReceivePanel';
 import type { VaultTxContext } from '@/lib/vault-tx';
+
+type TabId = 'chat' | 'contacts' | 'receive';
 
 function Tab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
@@ -20,6 +23,9 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
         cursor: 'pointer',
         transition: 'color 0.15s, border-color 0.15s',
         whiteSpace: 'nowrap',
+        minHeight: '44px',
+        display: 'flex',
+        alignItems: 'flex-start',
       }}
     >
       {label}
@@ -28,25 +34,36 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
 }
 
 export function AsidePanel({ vaultCtx, onRefresh }: { vaultCtx: VaultTxContext; onRefresh?: () => void }) {
-  const [tab, setTab] = useState<'chat' | 'contacts'>('chat');
+  const [tab, setTab] = useState<TabId>('chat');
+
+  // Listen for empty-state CTA → switch to Receive tab
+  useEffect(() => {
+    const handler = () => setTab('receive');
+    window.addEventListener('cashpan:show-receive', handler);
+    return () => window.removeEventListener('cashpan:show-receive', handler);
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Tab header */}
       <div style={{
-        padding: '0.875rem 1.25rem 0',
+        padding: '0 1.25rem',
         borderBottom: '1px solid var(--color-border)',
         display: 'flex',
         gap: '1.25rem',
         flexShrink: 0,
       }}>
         <Tab label="💬 Money Talks" active={tab === 'chat'} onClick={() => setTab('chat')} />
+        <Tab label="📥 Receive" active={tab === 'receive'} onClick={() => setTab('receive')} />
         <Tab label="👤 Contacts" active={tab === 'contacts'} onClick={() => setTab('contacts')} />
       </div>
 
-      {/* Panel body — both mounted, hidden/shown to preserve chat state */}
+      {/* Panels — all mounted, visibility toggled so chat state survives tab switches */}
       <div style={{ flex: 1, overflow: 'hidden', display: tab === 'chat' ? 'flex' : 'none', flexDirection: 'column' }}>
         <ChatPanel vaultCtx={vaultCtx} onRefresh={onRefresh} />
+      </div>
+      <div style={{ flex: 1, overflow: 'hidden', display: tab === 'receive' ? 'flex' : 'none', flexDirection: 'column' }}>
+        <ReceivePanel vaultCtx={vaultCtx} />
       </div>
       <div style={{ flex: 1, overflow: 'hidden', display: tab === 'contacts' ? 'flex' : 'none', flexDirection: 'column' }}>
         <ContactsPanel />
