@@ -57,7 +57,7 @@ interface ConfirmCardProps {
 
 function blockMessage(proposal: Proposal, reason: BlockReason): string {
   const label = proposal.action === 'send' ? `"${proposal.payeeLabel}"` : null;
-  const liquid = fmtAmt(proposal.liquidSui);
+  const liquid = fmtAmt(proposal.spendBalance);
   const savings = 'savingsSui' in proposal ? fmtAmt(proposal.savingsSui) : null;
 
   switch (reason) {
@@ -236,7 +236,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
                   <CopyableAddress address={proposal.recipient} />
                 </div>
               )}
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
             </>
           )}
 
@@ -246,13 +246,13 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
                 <span style={{ color: 'var(--color-muted)' }}>To</span>
                 <CopyableAddress address={proposal.payoutAddress} />
               </div>
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
             </>
           )}
 
           {proposal.action === 'sweep' && (
             <>
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
               <ProposalDetail label="Save" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
             </>
           )}
@@ -260,7 +260,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
           {proposal.action === 'topup' && (
             <>
               <ProposalDetail label="Save" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.liquidSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
             </>
           )}
         </div>

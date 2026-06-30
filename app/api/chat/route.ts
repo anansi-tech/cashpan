@@ -189,7 +189,7 @@ export async function POST(req: Request) {
 
       proposeSweep: tool({
         description:
-          'Propose moving liquid to the savings pocket (sweep). Call this for "put aside", "save", "move to savings". Amount is optional — omit to sweep as much as the per-tx cap allows.',
+          'Propose moving money from Spend to Save (sweep). Call this for "put aside", "save", "move to savings". Amount is optional — omit to sweep all available Spend balance.',
         inputSchema: jsonSchema<{ amount?: string }>({
           type: 'object',
           properties: {

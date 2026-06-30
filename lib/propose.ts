@@ -47,7 +47,7 @@ export interface SendProposal {
   amountSui: string;
   payeeLabel: string;
   recipient?: string;
-  liquidSui: string;
+  spendBalance: string;
   blocked?: BlockReason;
 }
 
@@ -56,7 +56,7 @@ export interface WithdrawToMeProposal {
   amountMist: string;
   amountSui: string;
   payoutAddress: string;
-  liquidSui: string;
+  spendBalance: string;
   blocked?: BlockReason;
 }
 
@@ -64,7 +64,7 @@ export interface SweepProposal {
   action: 'sweep';
   amountMist: string;
   amountSui: string;
-  liquidSui: string;
+  spendBalance: string;
   savingsSui: string;
   blocked?: BlockReason;
 }
@@ -74,7 +74,7 @@ export interface TopupProposal {
   amountMist: string;
   amountSui: string;
   savingsSui: string;
-  liquidSui: string;
+  spendBalance: string;
   blocked?: BlockReason;
 }
 
@@ -149,7 +149,7 @@ export async function proposeSend(
     amountSui: mistToSui(amountMist),
     payeeLabel,
     recipient,
-    liquidSui: mistToSui(vault.liquid),
+    spendBalance: mistToSui(vault.liquid),
   };
 
   if (!recipient) return { ...base, recipient: undefined, blocked: 'not_a_payee' };
@@ -167,7 +167,7 @@ export async function proposeWithdrawToMe(amountSuiStr: string, vaultId: string)
     amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
     payoutAddress: vault.payoutAddress,
-    liquidSui: mistToSui(vault.liquid),
+    spendBalance: mistToSui(vault.liquid),
   };
 
   if (vault.liquid < amountMist) return { ...base, blocked: 'insufficient_liquid' };
@@ -184,7 +184,7 @@ export async function proposeSweep(amountSuiStr: string | undefined, vaultId: st
     action: 'sweep',
     amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
-    liquidSui: mistToSui(vault.liquid),
+    spendBalance: mistToSui(vault.liquid),
     savingsSui: mistToSui(vault.savingsValue),
   };
 
@@ -202,7 +202,7 @@ export async function proposeTopup(amountSuiStr: string, vaultId: string): Promi
     amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
     savingsSui: mistToSui(vault.savingsValue),
-    liquidSui: mistToSui(vault.liquid),
+    spendBalance: mistToSui(vault.liquid),
   };
 
   if (vault.savingsValue < amountMist) return { ...base, blocked: 'no_savings' };
