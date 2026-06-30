@@ -122,13 +122,13 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
         <PocketCard
           type="liquid"
           amountBase={liquid.toFixed(0)}
-          label="Spend Pocket"
+          label="Spend"
           sublabel="ready to use"
         />
         <PocketCard
           type="savings"
           amountBase={savingsValue.toFixed(0)}
-          label="Savings Pocket"
+          label="Save"
           sublabel={accruedLabel}
         />
       </div>
@@ -153,12 +153,40 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
         <Stat label="Epoch" value={`#${displayed.currentEpoch}`} />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0', flex: 1 }}>
-        <CashPanVisual
-          fillPercent={fillPercent}
-          label={`$${fmt(savingsValue, 2)} ${COIN_SYM}`}
-        />
-      </div>
+      {total === 0 ? (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          gap: '1rem', padding: '2rem 1rem', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '2rem' }}>💸</div>
+          <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '1rem' }}>
+            Add money to get started
+          </div>
+          <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', lineHeight: 1.6, maxWidth: '22rem' }}>
+            Share your address to receive {COIN_SYM}, then tap{' '}
+            <strong style={{ color: 'var(--color-text)' }}>Add to CashPan</strong> to fund your Spend pocket.
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('cashpan:show-receive'))}
+            style={{
+              background: 'var(--color-savings)', color: '#0a0f1e',
+              border: 'none', borderRadius: '0.625rem',
+              padding: '0.75rem 1.5rem', fontSize: '0.9rem', fontWeight: 700,
+              cursor: 'pointer', minHeight: '44px',
+            }}
+          >
+            Receive money →
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0', flex: 1 }}>
+          <CashPanVisual
+            fillPercent={fillPercent}
+            label={`$${fmt(savingsValue, 2)} ${COIN_SYM}`}
+          />
+        </div>
+      )}
     </div>
   );
 }
