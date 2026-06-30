@@ -208,15 +208,17 @@ function ChatMessage({
   );
 }
 
+const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
+
 function EmptyState() {
   return (
     <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '3rem 1rem', lineHeight: 1.7 }}>
       <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>💬</div>
-      <div>Ask about your money or move it.</div>
-      <div style={{ marginTop: '0.75rem', fontSize: '0.78rem', color: 'var(--color-muted-2)' }}>
-        &ldquo;What&apos;s my balance?&rdquo; &middot; &ldquo;Put aside 0.05 SUI&rdquo;
-        <br />
-        &ldquo;Move 0.1 to spending&rdquo; &middot; &ldquo;Send mom 0.02 SUI&rdquo;
+      <div>Tell me what you want to do with your money.</div>
+      <div style={{ marginTop: '0.75rem', fontSize: '0.78rem', color: 'var(--color-muted-2)', lineHeight: 1.9 }}>
+        &ldquo;What&apos;s my balance?&rdquo;<br />
+        &ldquo;Send mom $10&rdquo;<br />
+        &ldquo;Put $20 in Save&rdquo; &middot; &ldquo;Move $5 to Spend&rdquo;
       </div>
     </div>
   );
@@ -224,7 +226,7 @@ function EmptyState() {
 
 function ThinkingIndicator() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '0.25rem 0.5rem' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.25rem 0.5rem' }}>
       {[0, 1, 2].map((i) => (
         <div key={i} style={{
           width: '7px', height: '7px', borderRadius: '50%',
@@ -232,6 +234,7 @@ function ThinkingIndicator() {
           animation: `cashpan-pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
         }} />
       ))}
+      <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', marginLeft: '2px' }}>Thinking…</span>
     </div>
   );
 }
