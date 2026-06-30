@@ -1,149 +1,133 @@
 # CashPan
 
-An agent that autonomously keeps a liquid buffer in your wallet and sweeps the rest to savings — on your own Sui wallet, non-custodial, capped, revocable, zero taps.
+A non-custodial personal finance web app on Sui. Users sign in with Google (zkLogin), get their own on-chain vault, and manage money through a plain-language chat interface — no wallet extension required.
 
 ---
 
-## The idea in plain English
+## What it does
 
-Picture your wallet with two compartments: a **spend pocket** and a **savings pocket**.
+Each user gets a **Vault** with two pockets:
 
-You tell the agent three numbers:
+- **Spend** — liquid balance, ready to use immediately
+- **Save** — earns yield via `YieldVenue`, growing each epoch
 
-- **Buffer** — the floor you always want in the spend pocket. ("Never let my spending pocket drop below 0.25 SUI.")
-- **Band** — a small cushion above the buffer so the agent doesn't fuss over tiny amounts. ("Don't bother unless it's clearly worth it.")
-- **Per-tx cap** — the most it can move in a single transaction.
+The chat agent ("Money Talks") understands natural commands: *"send mom $10"*, *"put $50 in Save"*, *"what's my balance?"*. Every action is a user-signed transaction — the server never holds keys or moves funds autonomously.
 
-Every few minutes the agent checks:
-
-| Condition | Action |
-|-----------|--------|
-| `liquid > buffer + band` | **Sweep** — move the excess into savings |
-| `liquid < buffer` | **Top-up** — pull from savings back into liquid |
-| Otherwise | **Noop** — leave it alone |
-
-The everyday version: *"I keep $250 in checking. I've got $500. The extra $250 is way more than my wiggle-room, so move it to savings."* Next tick, with only the buffer left, the agent does nothing.
-
-The band is the part people miss — without it, every few cents above the buffer would trigger a transaction. The band is what keeps the agent calm instead of twitchy.
-
-In v1, the savings pocket earns yield. Funds swept to savings sit in a `YieldVenue` and accrue interest every epoch. A top-up returns principal plus whatever has accrued — so your spend pocket gets topped up with *more* than was originally swept.
-
----
-
-## Non-custodial design
-
-The agent never holds your money. It holds an `AgentCap` — a scoped capability that can **only** call `rebalance()`, bounded by two on-chain hard limits:
-
-- **Per-tx cap** — maximum moved in a single transaction
-- **Daily cap** — maximum moved per epoch (resets automatically)
-
-The `AgentCap` has no path to an arbitrary withdrawal address. It can only shuffle funds between your vault's own liquid and savings pockets. If you ever want to revoke the agent, one owner transaction bumps a nonce and the existing cap is instantly dead.
-
-You hold the `OwnerCap`. That's the only key that can deposit, withdraw, or issue/revoke agent caps.
+An optional off-chain rebalance agent can run alongside to automatically sweep excess Spend into Save and top up Spend when it runs low. It holds only a scoped `AgentCap` — capped per-tx and per-epoch, no path to arbitrary withdrawal.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────┐
-│  Off-chain agent (TypeScript)   │
-│                                 │
-│  sense → decide → act           │
-│  (no LLM on this path)          │
-└────────────┬────────────────────┘
-             │ PTB via Sui RPC
-┌────────────▼────────────────────┐
-│  On-chain (Move)                │
-│                                 │
-│  Vault<T>                       │
-│  ├─ liquid: Balance<T>          │
-│  └─ savings_position: Position  │
-│       └─ backed by YieldVenue   │
-│                                 │
-│  OwnerCap  (full control)       │
-│  AgentCap  (rebalance only)     │
-└─────────────────────────────────┘
+Browser (Next.js 15)
+ ├── zkLogin sign-in (Google OAuth → Shinami ZK proof → Sui address)
+ ├── LiveDashboard — polls /api/balances, animates savings via RAF
+ ├── ChatPanel — useChat → /api/chat → streamText (GPT-4o-mini)
+ │    └── ConfirmCard — user signs & Shinami sponsors each tx
+ ├── ReceivePanel — shows address + QR; deposits owned coins into Spend
+ └── ContactsPanel — per-user send book stored in MongoDB
+
+Server (Next.js App Router, Node.js)
+ ├── /api/chat        — AI SDK streamText, propose tools, contact resolution
+ ├── /api/balances    — reads Vault + YieldVenue objects via Sui RPC
+ ├── /api/activity    — reads RebalanceEvent history
+ ├── /api/contacts    — CRUD contacts in MongoDB
+ └── /api/provision   — creates a Vault for a new user at first sign-in
+
+On-chain (Sui Move — move/sources/)
+ ├── vault.move       — Vault<T>: liquid + savings_position, OwnerCap, AgentCap
+ ├── yield_venue.move — YieldVenue<T>: fixed-rate stub; SWAP POINT for mainnet
+ └── test_usd.move    — fungible token for testnet
+
+Off-chain agent (src/ — standalone, optional)
+ └── sense → decide → act loop; holds AgentCap; auto-rebalances
 ```
-
-### On-chain modules (`move/sources/`)
-
-**`vault.move`** — the trust core. A shared `Vault<T>` holds the liquid balance and a venue-backed savings position. All agent operations go through capability checks before touching any balance.
-
-**`yield_venue.move`** — the yield boundary. A shared `YieldVenue<T>` holds deposited principal and an interest reserve. Accrual formula: `value = principal + principal × rate_bps × elapsed_epochs / (10_000 × period_epochs)`. The `// SWAP POINT` comment marks where to wire in a real protocol (Scallop, Navi, Sui Dollar) for mainnet.
-
-### Off-chain (`src/`)
-
-| File | Role |
-|------|------|
-| `sense.ts` | Reads vault + venue objects via RPC; computes `current_value` locally |
-| `decide.ts` | Pure function — sweep / topup / noop. No I/O, no model imports |
-| `act.ts` | Builds and submits a PTB calling `vault::rebalance` |
-| `agent.ts` | `setInterval` loop — sense → decide → act, logs every tick |
-
-`decide.ts` is the brain. It has no side effects and is unit-tested independently of any chain state.
 
 ---
 
 ## Quickstart
 
-**Prerequisites:** Sui CLI configured for testnet, Node 20+.
+**Prerequisites:** Sui CLI configured for testnet, Node 20+, MongoDB instance, Google OAuth credentials, Shinami account.
 
 ```sh
 # 1. Install dependencies
 npm install
 
-# 2. Get testnet SUI (you need ~5 SUI for setup)
+# 2. Get testnet SUI (~2 SUI for setup)
 #    https://faucet.sui.io
 
-# 3. Deploy everything and write .env
-npm run setup
+# 3. Copy and fill in .env
+cp .env.example .env
+# Fill in: NEXT_PUBLIC_GOOGLE_CLIENT_ID, SHINAMI_GAS_STATION_KEY,
+#          SHINAMI_ZKLOGIN_KEY, MONGODB_URI, OPENAI_API_KEY
 
-# 4. Start the agent
-npm run agent
+# 4. Deploy Move package + YieldVenue + test_usd, mint test tokens
+npm run setup
+# setup writes PACKAGE_ID, VENUE_ID, TREASURY_CAP_ID,
+# COIN_TYPE, COIN_DECIMALS, COIN_SYMBOL to .env
+
+# 5. Start the web app
+npm run dev
 ```
 
-`setup` publishes both Move modules, creates the `YieldVenue` (10%/epoch rate on testnet, pre-funded reserve), creates the `Vault` bound to it, issues an `AgentCap` to a fresh keypair, deposits initial liquid, and writes all object IDs + the agent private key to `.env`.
-
-On the first tick, if `liquid > buffer + band`, the agent sweeps the excess into savings. You can watch it on the Sui testnet explorer links printed by setup.
+Sign in with Google → vault is provisioned on first sign-in → use the Receive tab to add money.
 
 ---
 
-## Configuration (`.env`)
+## .env reference
 
-| Variable | Description |
-|----------|-------------|
-| `PACKAGE_ID` | Published Move package |
-| `VENUE_ID` | YieldVenue shared object |
-| `VAULT_ID` | Vault shared object |
-| `OWNER_CAP_ID` | Your OwnerCap (keep safe) |
-| `AGENT_CAP_ID` | AgentCap held by the agent keypair |
-| `AGENT_PRIVATE_KEY` | Agent's Bech32 private key |
-| `BUFFER` | Target liquid floor (MIST) |
-| `BAND` | Dead-band above buffer (MIST) |
-| `INTERVAL_MS` | Tick interval (default 300000 = 5 min) |
+| Variable | Set by | Description |
+|----------|--------|-------------|
+| `SUI_RPC_URL` | setup default | Sui fullnode RPC |
+| `NEXT_PUBLIC_SUI_NETWORK` | setup default | `testnet` or `mainnet` |
+| `PACKAGE_ID` | `npm run setup` | Published Move package |
+| `VENUE_ID` | `npm run setup` | YieldVenue shared object |
+| `TREASURY_CAP_ID` | `npm run setup` | test_usd TreasuryCap (testnet only) |
+| `COIN_TYPE` | `npm run setup` | Full coin type string |
+| `COIN_DECIMALS` | `npm run setup` | Decimal places (6 for test_usd) |
+| `COIN_SYMBOL` | `npm run setup` | Display symbol (USD) |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | manual | Google OAuth client ID |
+| `NEXT_PUBLIC_REDIRECT_URL` | manual | OAuth callback URL |
+| `SHINAMI_GAS_STATION_KEY` | manual | Shinami gas sponsorship |
+| `SHINAMI_ZKLOGIN_KEY` | manual | Shinami ZK prover |
+| `MONGODB_URI` | manual | MongoDB connection string |
+| `OPENAI_API_KEY` | manual | Chat model (gpt-4o-mini) |
+
+`NEXT_PUBLIC_COIN_TYPE/DECIMALS/SYMBOL` are **not** set in `.env` — they are derived from `COIN_TYPE/DECIMALS/SYMBOL` at build time via `next.config.ts`.
+
+---
+
+## Switching stablecoins
+
+Set `COIN_TYPE`, `COIN_DECIMALS`, `COIN_SYMBOL` in `.env` — no code changes needed. The `NEXT_PUBLIC_*` variants derive automatically.
+
+| Coin | `COIN_TYPE` | `COIN_DECIMALS` | `COIN_SYMBOL` |
+|------|-------------|-----------------|---------------|
+| test_usd (default) | `<pkg>::test_usd::TEST_USD` | `6` | `USD` |
+| USDC | `0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN` | `6` | `USDC` |
 
 ---
 
 ## Development
 
 ```sh
-# Move tests (run from move/)
-sui move test
+# Web app
+npm run dev          # Next.js dev server
+
+# Move (run from move/)
+sui move build
+sui move test        # 40 tests: 17 vault + 9 yield_venue + 14 test_usd
 
 # TypeScript unit tests
-npm test
+npm test             # decide.test.ts — 13 tests
 
-# Single Move test by name
-sui move test test_revoked_agent_cap_cannot_rebalance
+# Optional standalone agent (legacy; uses VAULT_ID / AGENT_PRIVATE_KEY etc.)
+npm run agent
 ```
 
 ---
 
-## Roadmap
+## Non-custodial design
 
-- **Now:** sense → decide → act loop, venue-backed yield, testnet
-- **P1:** Swap `YieldVenue` for Scallop / Navi / Sui Dollar on mainnet
-- **P2:** LLM intent layer — "keep $50 liquid, save the rest" → config
-- **P3:** "money talks" chat — balances, earnings, agent narration
-- **P4:** Fiat on-ramp + on-chain-native income (remittance, gig payouts)
+The server holds only a Shinami gas key (sponsors transactions, cannot sign them). Every fund movement is signed by the user's zkLogin key in the browser. The optional `AgentCap` is scoped to `rebalance()` — it cannot withdraw to any address outside the vault, and is bounded by per-tx and per-epoch caps set at vault creation.

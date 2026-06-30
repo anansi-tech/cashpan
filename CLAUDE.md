@@ -11,11 +11,13 @@ sui move test            # all tests (40 total: 17 vault + 9 yield_venue + 14 te
 sui move test <test_fn>  # single test by name
 ```
 
-**TypeScript (off-chain)** — run from repo root:
+**TypeScript / web** — run from repo root:
 ```sh
+npm run dev              # Next.js dev server
 npm test                 # Jest unit tests (decide.test.ts — 13 tests)
-npm run setup            # one-shot deploy: publish + create venue + create vault + write .env
-npm run agent            # start the rebalance loop
+npm run setup            # publish Move package + create YieldVenue + mint test_usd + write .env
+                         # NOTE: does NOT create a vault (vaults are provisioned per-user at sign-in)
+npm run agent            # optional standalone rebalance loop (legacy; needs VAULT_ID etc. in .env)
 ```
 
 ## Architecture
@@ -38,6 +40,32 @@ Vault fields:
 
 **`yield_venue.move`** — `YieldVenue<T>` holds deposited principal and an interest reserve. A `Position` tracks `{principal, entry_epoch}`. Accrual formula: `interest = principal * rate_bps * elapsed / (10_000 * period_epochs)`. Partial withdrawals use pro-rata principal reduction. `// SWAP POINT` comments on `deposit`, `withdraw`, `current_value`, and `fund_reserve` mark where a real protocol (Scallop, Navi, etc.) plugs in.
 
+### Web app — `app/` and `components/`
+
+Next.js 15 App Router. The main page (`app/page.tsx`) is a server component that reads vault state, then mounts client components.
+
+**Auth flow**: Google OAuth → `/auth/callback` → Shinami ZK proof → session stored in HTTP-only `cashpan-sub` cookie. Client reads the zkLogin address from `sessionStorage` via `getSession()`.
+
+**Key API routes** (`app/api/`):
+- `/api/provision` — creates a `Vault<T>` for a new user; called once at sign-in
+- `/api/balances` — reads `Vault` + `YieldVenue` objects and returns human-decimal balances
+- `/api/activity` — reads `RebalanceEvent` history, resolves addresses to contact names
+- `/api/chat` — streams AI SDK responses; expose `propose*` tools that validate on-chain before returning proposals
+- `/api/contacts` — GET/POST/DELETE contacts stored in MongoDB per user
+
+**Client components** (`components/`):
+- `LiveDashboard` — polls `/api/balances` every 30s; runs a RAF loop to animate the savings ticking tail and liquid easing
+- `ChatPanel` / `AsidePanel` — `useChat` → `/api/chat`; tab switcher mounts all panels (chat/receive/contacts) with `display: none` to preserve state
+- `ConfirmCard` — shows proposal details + "After this" effect rows; user taps Confirm → `executeTransaction` (user-signed, Shinami-sponsored)
+- `ReceivePanel` — shows zkLogin address + QR; detects owned `COIN_TYPE` coins and calls `vault::deposit`
+- `OnboardingModal` — shown once on first visit (localStorage flag)
+
+**Transaction execution**: `lib/execute-zklogin.ts` builds a PTB, gets a Shinami sponsor signature, adds the user's zkLogin partial sig, and submits. The server never touches the user's private key.
+
+**Proposal layer** (`lib/propose.ts`): pure functions that read live vault state and return typed `Proposal` objects (or `{ blocked: reason }`). The chat route calls these; the client renders the result as a `ConfirmCard`.
+
+**`VaultTxContext`** (`lib/vault-tx.ts`): `{ packageId, coinType, vaultId, ownerCapId, venueId, userAddress }` — threads server env vars + vault IDs from `page.tsx` through to client components for PTB building.
+
 ### Off-chain — `src/`
 
 The agent runs a `sense → decide → act` loop with no LLM on the path:
@@ -47,7 +75,7 @@ The agent runs a `sense → decide → act` loop with no LLM on the path:
 - **`act.ts`** — builds a PTB calling `vault::rebalance` with `[agentCapId, vaultId, venueId, direction, amount]`
 - **`agent.ts`** — loads config from `.env`, runs the loop on `setInterval`, logs every tick
 
-`scripts/setup.ts` is the one-shot deploy: publishes both Move modules, creates the `YieldVenue` and funds its reserve, creates the `Vault` bound to the venue, issues an `AgentCap` to a fresh keypair, deposits initial liquid, and writes all IDs + agent key to `.env`.
+`scripts/setup.ts` is the one-shot deploy: publishes both Move modules, creates the `YieldVenue` and funds its reserve, mints test_usd to the owner, and writes `PACKAGE_ID`, `VENUE_ID`, `TREASURY_CAP_ID`, `COIN_TYPE`, `COIN_DECIMALS`, `COIN_SYMBOL` to `.env`. It does **not** create a Vault — vaults are provisioned per-user via `/api/provision` on first sign-in.
 
 ### Key invariants
 
@@ -62,7 +90,7 @@ The agent runs a `sense → decide → act` loop with no LLM on the path:
 
 **Balance field shape** — `Balance<T>` appears as a nested struct `{value: "123"}` in object JSON, not a plain number. `sense.ts` reads it as `BigInt((fields.liquid as Record<string, string>).value ?? fields.liquid)`.
 
-**Keypair loading** — `ownerKeypair()` in setup iterates the full keystore at `~/.sui/sui_config/sui.keystore` and matches by `toSuiAddress() === activeAddress`. This is necessary when the keystore has multiple keys from other projects (e.g. Spice). The agent private key is stored as a Bech32 string (`suiprivk...`) written by `agentKeypair.getSecretKey()` and loaded via `Ed25519Keypair.fromSecretKey(bech32string)`.
+**Keypair loading** — `ownerKeypair()` in setup iterates the full keystore at `~/.sui/sui_config/sui.keystore` and matches by `toSuiAddress() === activeAddress`. This is necessary when the keystore has multiple keys from other projects (e.g. Spice). For the standalone agent, the agent private key is stored as a Bech32 string (`suiprivk...`) and loaded via `Ed25519Keypair.fromSecretKey(bech32string)` — but setup no longer creates or writes agent keys; manage them manually if running the agent loop.
 
 **SuiClient API** — This repo uses `@mysten/sui` v2.15.0. `SuiClient` was removed; use `SuiJsonRpcClient` from `@mysten/sui/jsonRpc`.
 
@@ -76,10 +104,8 @@ Everything is driven by three `.env` values — **no code changes needed**:
 | `COIN_DECIMALS` | `6` | `6` | `6` |
 | `COIN_SYMBOL` | `USD` | `USDC` | `USD` |
 
-Also set `NEXT_PUBLIC_COIN_DECIMALS` and `NEXT_PUBLIC_COIN_SYMBOL` to the same values (for client-side rendering).
+`NEXT_PUBLIC_COIN_TYPE/DECIMALS/SYMBOL` are **derived automatically** from the above via `next.config.ts` — do not set them separately in `.env`.
 
-**To deploy on testnet with test_usd** (default): run `npm run setup` — it publishes the `test_usd` module, mints tokens to the owner, and writes all vars.
+**To deploy on testnet with test_usd** (default): run `npm run setup` — it publishes the `test_usd` module, mints tokens to the owner, and writes all three vars.
 
-**To use USDC or Sui Dollar instead**: set the three vars above, fund the vault manually via `npm run deposit -- --amount <n>`, and skip the mint step. The vault, agent, and UI adapt automatically. The `test_usd` module is published but unused.
-
-Human-decimal amounts (`BUFFER`, `BAND`) are always in whole units of the coin regardless of decimals — `BUFFER=50` always means "50 tokens".
+**To use USDC or Sui Dollar instead**: set the three vars above manually and skip the mint step. The vault, agent, and UI adapt automatically. The `test_usd` module is published but unused.
