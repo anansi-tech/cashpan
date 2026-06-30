@@ -43,7 +43,6 @@ export type BlockReason =
 
 export interface SendProposal {
   action: 'send';
-  amountMist: string;
   amountSui: string;
   payeeLabel: string;
   recipient?: string;
@@ -53,7 +52,6 @@ export interface SendProposal {
 
 export interface WithdrawToMeProposal {
   action: 'withdrawToMe';
-  amountMist: string;
   amountSui: string;
   payoutAddress: string;
   spendBalance: string;
@@ -62,7 +60,6 @@ export interface WithdrawToMeProposal {
 
 export interface SweepProposal {
   action: 'sweep';
-  amountMist: string;
   amountSui: string;
   spendBalance: string;
   savingsSui: string;
@@ -71,7 +68,6 @@ export interface SweepProposal {
 
 export interface TopupProposal {
   action: 'topup';
-  amountMist: string;
   amountSui: string;
   savingsSui: string;
   spendBalance: string;
@@ -145,7 +141,6 @@ export async function proposeSend(
 
   const base: SendProposal = {
     action: 'send',
-    amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
     payeeLabel,
     recipient,
@@ -164,7 +159,6 @@ export async function proposeWithdrawToMe(amountSuiStr: string, vaultId: string)
 
   const base: WithdrawToMeProposal = {
     action: 'withdrawToMe',
-    amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
     payoutAddress: vault.payoutAddress,
     spendBalance: mistToSui(vault.liquid),
@@ -182,7 +176,6 @@ export async function proposeSweep(amountSuiStr: string | undefined, vaultId: st
 
   const base: SweepProposal = {
     action: 'sweep',
-    amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
     spendBalance: mistToSui(vault.liquid),
     savingsSui: mistToSui(vault.savingsValue),
@@ -199,7 +192,6 @@ export async function proposeTopup(amountSuiStr: string, vaultId: string): Promi
 
   const base: TopupProposal = {
     action: 'topup',
-    amountMist: amountMist.toString(),
     amountSui: mistToSui(amountMist),
     savingsSui: mistToSui(vault.savingsValue),
     spendBalance: mistToSui(vault.liquid),

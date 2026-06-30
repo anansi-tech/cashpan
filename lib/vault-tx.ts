@@ -9,6 +9,7 @@
 
 import { Transaction } from '@mysten/sui/transactions';
 import type { Proposal, SendProposal, WithdrawToMeProposal, SweepProposal, TopupProposal } from './propose';
+import { humanToBase } from './coin-config';
 
 // Direction constants mirror the Move constants (SWEEP=0, TOPUP=1)
 const SWEEP = 0;
@@ -32,7 +33,7 @@ export function buildSendTx(proposal: SendProposal, ctx: VaultTxContext): Transa
     arguments: [
       tx.object(ctx.ownerCapId),
       tx.object(ctx.vaultId),
-      tx.pure.u64(BigInt(proposal.amountMist)),
+      tx.pure.u64(humanToBase(proposal.amountSui)),
       tx.pure.address(proposal.recipient),
     ],
   });
@@ -48,7 +49,7 @@ export function buildWithdrawTx(proposal: WithdrawToMeProposal, ctx: VaultTxCont
     arguments: [
       tx.object(ctx.ownerCapId),
       tx.object(ctx.vaultId),
-      tx.pure.u64(BigInt(proposal.amountMist)),
+      tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
   });
   tx.transferObjects([coin], tx.pure.address(ctx.userAddress));
@@ -65,7 +66,7 @@ export function buildSweepTx(proposal: SweepProposal, ctx: VaultTxContext): Tran
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
       tx.pure.u8(SWEEP),
-      tx.pure.u64(BigInt(proposal.amountMist)),
+      tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
   });
   return tx;
@@ -81,7 +82,7 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
       tx.pure.u8(TOPUP),
-      tx.pure.u64(BigInt(proposal.amountMist)),
+      tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
   });
   return tx;
