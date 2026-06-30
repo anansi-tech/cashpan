@@ -9,6 +9,7 @@
 
 import { Transaction } from '@mysten/sui/transactions';
 import type { Proposal, SendProposal, WithdrawToMeProposal, SweepProposal, TopupProposal } from './propose';
+import type { SweepToSaveProposal } from './brain';
 import { humanToBase } from './coin-config';
 
 // Direction constants mirror the Move constants (SWEEP=0, TOPUP=1)
@@ -82,6 +83,39 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
       tx.pure.u8(TOPUP),
+      tx.pure.u64(humanToBase(proposal.amountSui)),
+    ],
+  });
+  return tx;
+}
+
+// ─── Brain PTB builders ───────────────────────────────────────────────────────
+
+export function buildDepositTx(coinIds: string[], ctx: VaultTxContext): Transaction {
+  if (coinIds.length === 0) throw new Error('No coins to deposit');
+  const tx = new Transaction();
+  const primary = tx.object(coinIds[0]);
+  if (coinIds.length > 1) {
+    tx.mergeCoins(primary, coinIds.slice(1).map((id) => tx.object(id)));
+  }
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::deposit`,
+    typeArguments: [ctx.coinType],
+    arguments: [tx.object(ctx.vaultId), primary],
+  });
+  return tx;
+}
+
+export function buildSweepFromBrain(proposal: SweepToSaveProposal, ctx: VaultTxContext): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::owner_rebalance`,
+    typeArguments: [ctx.coinType],
+    arguments: [
+      tx.object(ctx.ownerCapId),
+      tx.object(ctx.vaultId),
+      tx.object(ctx.venueId),
+      tx.pure.u8(SWEEP),
       tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
   });

@@ -10,6 +10,7 @@ import { SignOutButton } from '@/components/SignOutButton';
 import { ProvisionVault } from '@/components/ProvisionVault';
 import { AccountBar } from '@/components/AccountBar';
 import { OnboardingModal } from '@/components/OnboardingModal';
+import { ProposalBanner } from '@/components/ProposalBanner';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,6 +124,7 @@ export default async function Page() {
             gap: '0',
           }}
         >
+          <ProposalBanner vaultCtx={vaultCtx} />
           <LiveDashboard initial={{ balances, earnings }} />
           <ActivityFeed initial={activity} />
         </main>
