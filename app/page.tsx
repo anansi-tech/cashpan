@@ -9,6 +9,7 @@ import { SignIn } from '@/components/SignIn';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ProvisionVault } from '@/components/ProvisionVault';
 import { AccountBar } from '@/components/AccountBar';
+import { OnboardingModal } from '@/components/OnboardingModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,8 @@ export default async function Page() {
         height: '100vh',
       }}
     >
+      <OnboardingModal />
+
       {/* Header */}
       <header
         style={{
