@@ -157,7 +157,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
   // ── Pending ──────────────────────────────────────────────────────────────────
   if (execState === 'pending') {
     return (
-      <div style={{
+      <div className="confirm-card" style={{
         background: 'rgba(16,185,129,0.08)',
         border: '1px solid rgba(16,185,129,0.2)',
         borderRadius: '0.875rem',
@@ -178,7 +178,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
   // ── Success ───────────────────────────────────────────────────────────────────
   if (execState === 'success') {
     return (
-      <div style={{
+      <div className="confirm-card" style={{
         background: 'rgba(16,185,129,0.08)',
         border: '1px solid rgba(16,185,129,0.25)',
         borderRadius: '0.875rem',
@@ -200,7 +200,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
 
   // ── Idle / Error ──────────────────────────────────────────────────────────────
   return (
-    <div style={{
+    <div className="confirm-card" style={{
       background: accentColor,
       border: `1px solid ${borderColor}`,
       borderRadius: '0.875rem',

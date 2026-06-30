@@ -107,6 +107,7 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
               Shift+Enter for new line
             </span>
             <button
+              className="chat-send-btn"
               onClick={handleSend}
               disabled={!canSend}
               title="Send"

@@ -118,7 +118,7 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'stretch' }}>
+      <div className="pocket-cards" style={{ display: 'flex', gap: '1rem', alignItems: 'stretch' }}>
         <PocketCard
           type="liquid"
           amountBase={liquid.toFixed(0)}
@@ -134,6 +134,7 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
       </div>
 
       <div
+        className="stats-row"
         style={{
           display: 'flex',
           gap: '1rem',
@@ -205,5 +206,5 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 }
 
 function Divider() {
-  return <div style={{ width: '1px', height: '2rem', background: 'var(--color-border)' }} />;
+  return <div className="stats-divider" style={{ width: '1px', height: '2rem', background: 'var(--color-border)' }} />;
 }

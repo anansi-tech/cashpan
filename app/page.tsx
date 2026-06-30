@@ -49,12 +49,13 @@ export default async function Page() {
 
   return (
     <div
+      className="page-root"
       style={{
-        height: '100vh',
         background: 'var(--color-bg)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        height: '100vh',
       }}
     >
       {/* Header */}
@@ -86,7 +87,7 @@ export default async function Page() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <SignOutButton name={vault.payoutAddress.slice(0, 8) + '…'} />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="epoch-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span
               style={{
                 width: '6px',

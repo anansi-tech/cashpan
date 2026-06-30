@@ -22,6 +22,7 @@ export function PocketCard({ type, amountBase, label, sublabel }: PocketCardProp
 
   return (
     <div
+      className="pocket-card"
       style={{
         background: isSavings ? 'var(--color-savings-dim)' : 'var(--color-liquid-dim)',
         border: `1px solid ${isSavings ? 'rgba(16,185,129,0.22)' : 'rgba(245,158,11,0.2)'}`,
@@ -66,6 +67,7 @@ export function PocketCard({ type, amountBase, label, sublabel }: PocketCardProp
       </div>
 
       <div
+        className="pocket-number"
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: '1.75rem',
