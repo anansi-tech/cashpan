@@ -79,8 +79,8 @@ function actionLabel(proposal: Proposal): string {
 
 function EffectRow({ label, before, after }: { label: string; before: number; after: number }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
-      <span style={{ color: 'var(--color-muted)' }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem' }}>
+      <span style={{ color: 'var(--color-muted)', minWidth: '3.25rem', flexShrink: 0 }}>{label}:</span>
       <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
         {fmtAmt(before.toFixed(6))} → {fmtAmt(Math.max(0, after).toFixed(6))} {COIN_SYM}
       </span>
@@ -182,7 +182,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
         display: 'flex',
         alignItems: 'center',
         gap: '0.75rem',
-        maxWidth: '340px',
+        maxWidth: '380px',
       }}>
         <Spinner />
         <span style={{ fontSize: '0.875rem', color: 'var(--color-text)', fontWeight: 500 }}>
@@ -203,7 +203,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
         display: 'flex',
         flexDirection: 'column',
         gap: '0.35rem',
-        maxWidth: '340px',
+        maxWidth: '380px',
       }}>
         <div style={{ color: 'var(--color-savings)', fontSize: '0.875rem', fontWeight: 700 }}>
           ✓ {successLabel(proposal)}
