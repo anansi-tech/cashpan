@@ -84,6 +84,13 @@ export async function getActiveVault(identityKey: string): Promise<VaultRecord |
   return getByIdentity(identityKey);
 }
 
+// ─── Cursor (watcher durable bookmark) ───────────────────────────────────────
+
+export async function updateCursor(identityKey: string, cursor: string): Promise<void> {
+  await connectDB();
+  await getModel().updateOne({ identityKey }, { $set: { eventCursor: cursor } });
+}
+
 // ─── Contacts (per-user address book) ────────────────────────────────────────
 
 const SUI_ADDRESS_RE = /^0x[0-9a-fA-F]{64}$/;
