@@ -31,16 +31,41 @@ function CopyAddress({ address }: { address: string }) {
   );
 }
 
+function SkeletonRow() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '0.75rem',
+      padding: '0.625rem 0.875rem',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid var(--color-border)',
+      borderRadius: '0.75rem',
+    }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        <div style={{ width: '4rem', height: '0.75rem', borderRadius: '0.25rem', background: 'rgba(255,255,255,0.07)', animation: 'cashpan-pulse 1.4s ease-in-out infinite' }} />
+        <div style={{ width: '7rem', height: '0.6rem', borderRadius: '0.25rem', background: 'rgba(255,255,255,0.04)', animation: 'cashpan-pulse 1.4s ease-in-out 0.2s infinite' }} />
+      </div>
+    </div>
+  );
+}
+
 export function ContactsPanel() {
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contacts, setContacts] = useState<Contact[] | null>(null); // null = loading
+  const [loadError, setLoadError] = useState('');
   const [label, setLabel] = useState('');
   const [address, setAddress] = useState('');
   const [adding, setAdding] = useState(false);
   const [apiError, setApiError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/contacts');
-    if (res.ok) setContacts(await res.json());
+    setLoadError('');
+    try {
+      const res = await fetch('/api/contacts');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setContacts(await res.json());
+    } catch {
+      setLoadError('Could not load contacts. Check your connection.');
+      setContacts([]);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -67,6 +92,8 @@ export function ContactsPanel() {
         setAddress('');
         await load();
       }
+    } catch {
+      setApiError('Network issue. Please try again.');
     } finally {
       setAdding(false);
     }
@@ -81,11 +108,29 @@ export function ContactsPanel() {
     await load();
   };
 
+  const isLoading = contacts === null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Contact list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
-        {contacts.length === 0 ? (
+        {isLoading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </div>
+        ) : loadError ? (
+          <div style={{ textAlign: 'center', padding: '2rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+            <div style={{ color: 'rgba(252,165,165,0.9)', fontSize: '0.85rem' }}>{loadError}</div>
+            <button
+              onClick={() => { setContacts(null); void load(); }}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)', borderRadius: '0.5rem', padding: '0.5rem 1rem', fontSize: '0.82rem', cursor: 'pointer', minHeight: '40px' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : contacts!.length === 0 ? (
           <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '3rem 1rem', lineHeight: 1.7 }}>
             <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>📋</div>
             <div>No contacts yet.</div>
@@ -95,13 +140,11 @@ export function ContactsPanel() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {contacts.map((c) => (
+            {contacts!.map((c) => (
               <div
                 key={c.label}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
                   padding: '0.625rem 0.875rem',
                   background: 'rgba(255,255,255,0.03)',
                   border: '1px solid var(--color-border)',
@@ -118,14 +161,10 @@ export function ContactsPanel() {
                   onClick={() => handleRemove(c.label)}
                   title="Remove contact"
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--color-muted)',
-                    fontSize: '1rem',
-                    padding: '0.25rem',
-                    lineHeight: 1,
-                    flexShrink: 0,
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--color-muted)', fontSize: '1rem',
+                    padding: '0.25rem', lineHeight: 1, flexShrink: 0,
+                    minWidth: '32px', minHeight: '32px',
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(239,68,68,0.8)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-muted)')}
@@ -182,13 +221,11 @@ export function ContactsPanel() {
           style={{
             background: canAdd ? 'var(--color-savings)' : 'rgba(255,255,255,0.06)',
             color: canAdd ? '#0a0f1e' : 'var(--color-muted)',
-            border: 'none',
-            borderRadius: '0.625rem',
-            padding: '0.5rem',
-            fontSize: '0.85rem',
-            fontWeight: 700,
+            border: 'none', borderRadius: '0.625rem',
+            padding: '0.5rem', fontSize: '0.85rem', fontWeight: 700,
             cursor: canAdd ? 'pointer' : 'not-allowed',
             transition: 'background 0.15s, color 0.15s',
+            minHeight: '44px',
           }}
         >
           {adding ? 'Adding…' : 'Add contact'}
