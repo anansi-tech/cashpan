@@ -1,7 +1,8 @@
 /**
- * Cashpan setup script — publishes vault + yield_venue + test_usd, mints
- * test USD, funds vault and venue, issues an AgentCap to a fresh keypair,
- * and writes all IDs + config to .env.
+ * Cashpan setup script — publishes vault + yield_venue + test_usd,
+ * mints test USD, funds the venue reserve, and writes IDs to .env.
+ *
+ * Vaults are created per-user at sign-in — do NOT create one here.
  *
  * Prerequisites:
  *   - `sui` CLI with the owner keypair active on testnet
@@ -17,9 +18,8 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
-import { ownerKeypair, coinArg } from "./script-helpers.js";
+import { ownerKeypair } from "./script-helpers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -36,14 +36,9 @@ const COIN_DECIMALS_DEFAULT = 6; // test_usd is 6-decimal
 const RATE_BPS = 1_000n;   // 10% / epoch
 const PERIOD_EPOCHS = 1n;
 
-const PER_TX_CAP_HUMAN       = "50";   // $50 per rebalance tx
-const DAILY_CAP_HUMAN        = "200";  // $200 per epoch (rebalance)
-const OUTFLOW_PER_TX_CAP_HUMAN = "20"; // $20 per outflow tx
-const OUTFLOW_DAILY_CAP_HUMAN  = "100";// $100 per epoch (outflow)
 const BUFFER_HUMAN           = "50";   // $50 target liquid
 const BAND_HUMAN             = "5";    // $5 dead-band
 const RESERVE_FUND_HUMAN     = "200";  // $200 venue reserve
-const INITIAL_FUND_HUMAN     = "100";  // $100 initial vault liquid
 const MINT_AMOUNT_HUMAN      = "2000"; // total minted (covers all needs)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -243,126 +238,19 @@ async function main() {
   console.log(`   Reserve: $${RESERVE_FUND_HUMAN} ${COIN_SYMBOL}`);
   await waitForTx(client, reserveResult.digest);
 
-  // ── 5. Create Vault ─────────────────────────────────────────────────────────
-  console.log("\n5. Creating Vault...");
-  const createTx = new Transaction();
-  const ownerCapArg = createTx.moveCall({
-    target: `${packageId}::vault::create_vault`,
-    typeArguments: [COIN_TYPE],
-    arguments: [
-      createTx.object(venueId),
-      createTx.pure.address(ownerAddress),
-      createTx.pure.u64(toBase(PER_TX_CAP_HUMAN)),
-      createTx.pure.u64(toBase(DAILY_CAP_HUMAN)),
-      createTx.pure.u64(toBase(OUTFLOW_PER_TX_CAP_HUMAN)),
-      createTx.pure.u64(toBase(OUTFLOW_DAILY_CAP_HUMAN)),
-    ],
-  });
-  createTx.transferObjects([ownerCapArg], ownerAddress);
-  const createResult = await client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: createTx,
-    options: { showEffects: true, showObjectChanges: true },
-  });
-  if (createResult.effects?.status.status !== "success") {
-    throw new Error(`create_vault failed: ${createResult.effects?.status.error}`);
-  }
-  const vaultId = createResult.objectChanges?.find(
-    (c: Record<string, unknown>) =>
-      c["type"] === "created" && typeof c["objectType"] === "string" && c["objectType"].includes("::vault::Vault"),
-  )?.["objectId"] as string;
-  const ownerCapId = createResult.objectChanges?.find(
-    (c: Record<string, unknown>) =>
-      c["type"] === "created" && typeof c["objectType"] === "string" && c["objectType"].includes("OwnerCap"),
-  )?.["objectId"] as string;
-  if (!vaultId || !ownerCapId) throw new Error("Could not find Vault or OwnerCap IDs");
-  console.log(`   Vault:    ${vaultId}`);
-  console.log(`   OwnerCap: ${ownerCapId}`);
-  await waitForTx(client, createResult.digest);
-
-  // ── 6. Issue AgentCap ───────────────────────────────────────────────────────
-  console.log("\n6. Issuing AgentCap...");
-  const agentKeypair = new Ed25519Keypair();
-  const agentAddress = agentKeypair.getPublicKey().toSuiAddress();
-  console.log(`   Agent address: ${agentAddress}`);
-
-  const issueTx = new Transaction();
-  const agentCapArg = issueTx.moveCall({
-    target: `${packageId}::vault::issue_agent_cap`,
-    typeArguments: [COIN_TYPE],
-    arguments: [issueTx.object(ownerCapId), issueTx.object(vaultId)],
-  });
-  issueTx.transferObjects([agentCapArg], agentAddress);
-  const issueResult = await client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: issueTx,
-    options: { showEffects: true, showObjectChanges: true },
-  });
-  if (issueResult.effects?.status.status !== "success") {
-    throw new Error(`issue_agent_cap failed: ${issueResult.effects?.status.error}`);
-  }
-  const agentCapId = issueResult.objectChanges?.find(
-    (c: Record<string, unknown>) =>
-      c["type"] === "created" && typeof c["objectType"] === "string" && c["objectType"].includes("AgentCap"),
-  )?.["objectId"] as string;
-  if (!agentCapId) throw new Error("Could not find AgentCap ID");
-  console.log(`   AgentCap: ${agentCapId}`);
-  await waitForTx(client, issueResult.digest);
-
-  // ── 7. Fund agent with SUI gas ──────────────────────────────────────────────
-  console.log("\n7. Funding agent with SUI gas...");
-  const agentGasTx = new Transaction();
-  const [agentGasCoin] = agentGasTx.splitCoins(agentGasTx.gas, [100_000_000n]); // 0.1 SUI
-  agentGasTx.transferObjects([agentGasCoin], agentAddress);
-  const agentGasResult = await client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: agentGasTx,
-    options: { showEffects: true },
-  });
-  if (agentGasResult.effects?.status.status !== "success") {
-    throw new Error(`agent gas funding failed: ${agentGasResult.effects?.status.error}`);
-  }
-  console.log(`   Sent 0.1 SUI to ${agentAddress}`);
-  await waitForTx(client, agentGasResult.digest);
-
-  // ── 8. Fund vault liquid ────────────────────────────────────────────────────
-  console.log("\n8. Funding vault liquid...");
-  const depositTx = new Transaction();
-  const depositCoin = await coinArg(client, depositTx, ownerAddress, COIN_TYPE, toBase(INITIAL_FUND_HUMAN));
-  depositTx.moveCall({
-    target: `${packageId}::vault::deposit`,
-    typeArguments: [COIN_TYPE],
-    arguments: [depositTx.object(vaultId), depositCoin],
-  });
-  const depositResult = await client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: depositTx,
-    options: { showEffects: true },
-  });
-  if (depositResult.effects?.status.status !== "success") {
-    throw new Error(`deposit failed: ${depositResult.effects?.status.error}`);
-  }
-  console.log(`   Deposited $${INITIAL_FUND_HUMAN} ${COIN_SYMBOL} into liquid`);
-
-  // ── 9. Patch .env (only update generated keys; preserve auth/service keys) ──
-  console.log("\n9. Patching .env...");
+  // ── 5. Patch .env (only update generated keys; preserve auth/service keys) ──
+  console.log("\n5. Patching .env...");
   patchEnv(
     ROOT,
     // always overwrite — these are generated fresh every publish
     {
       PACKAGE_ID: packageId,
       VENUE_ID: venueId,
-      VAULT_ID: vaultId,
-      OWNER_CAP_ID: ownerCapId,
-      AGENT_CAP_ID: agentCapId,
-      AGENT_PRIVATE_KEY: agentKeypair.getSecretKey(),
       TREASURY_CAP_ID: treasuryCapId,
       COIN_TYPE: COIN_TYPE,
       COIN_DECIMALS: String(COIN_DECIMALS),
       COIN_SYMBOL: COIN_SYMBOL,
-      NEXT_PUBLIC_COIN_TYPE: COIN_TYPE,
-      NEXT_PUBLIC_COIN_DECIMALS: String(COIN_DECIMALS),
-      NEXT_PUBLIC_COIN_SYMBOL: COIN_SYMBOL,
+      // NEXT_PUBLIC_COIN_* are derived from COIN_* in next.config.ts — no need to set here
     },
     // defaults — set only if not already present (user may have tuned these)
     {
@@ -376,12 +264,11 @@ async function main() {
 
   console.log("\n=== Setup complete ===");
   console.log(`\nCOIN_TYPE: ${COIN_TYPE}`);
-  console.log("\nRun the agent:");
-  console.log("  npm run agent\n");
+  console.log("\nStart the app:");
+  console.log("  npm run dev\n");
   console.log("Explorer links:");
   console.log(`  Package: https://suiexplorer.com/object/${packageId}?network=testnet`);
   console.log(`  Venue:   https://suiexplorer.com/object/${venueId}?network=testnet`);
-  console.log(`  Vault:   https://suiexplorer.com/object/${vaultId}?network=testnet`);
 }
 
 main().catch((e) => {
