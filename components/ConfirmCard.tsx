@@ -77,6 +77,17 @@ function actionLabel(proposal: Proposal): string {
   return 'Move to Spend';
 }
 
+function EffectRow({ label, before, after }: { label: string; before: number; after: number }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+      <span style={{ color: 'var(--color-muted)' }}>{label}</span>
+      <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+        {fmtAmt(before.toFixed(6))} → {fmtAmt(Math.max(0, after).toFixed(6))} {COIN_SYM}
+      </span>
+    </div>
+  );
+}
+
 function ProposalDetail({ label, value, dim }: { label: string; value: string; dim?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
@@ -135,6 +146,12 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
   const isBlocked = !!proposal.blocked;
   const accentColor = isBlocked ? 'rgba(239,68,68,0.22)' : 'rgba(16,185,129,0.14)';
   const borderColor = isBlocked ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.25)';
+
+  const amt = parseFloat(proposal.amountSui);
+  const spend = parseFloat(proposal.spendBalance);
+  const savings = 'savingsSui' in proposal ? parseFloat((proposal as { savingsSui: string }).savingsSui) : 0;
+  const sourceBalance = proposal.action === 'topup' ? savings : spend;
+  const isLargeAmount = !isBlocked && amt > sourceBalance * 0.8 && amt > 10;
 
   const handleConfirm = async () => {
     setExecState('pending');
@@ -263,6 +280,41 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
               <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
             </>
           )}
+        </div>
+      )}
+
+      {/* Effect summary */}
+      {!isBlocked && (
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.1rem' }}>
+            After this
+          </div>
+          {(proposal.action === 'send' || proposal.action === 'withdrawToMe') && (
+            <EffectRow label="Spend" before={spend} after={spend - amt} />
+          )}
+          {proposal.action === 'sweep' && (
+            <>
+              <EffectRow label="Spend" before={spend} after={spend - amt} />
+              <EffectRow label="Save" before={savings} after={savings + amt} />
+            </>
+          )}
+          {proposal.action === 'topup' && (
+            <>
+              <EffectRow label="Save" before={savings} after={savings - amt} />
+              <EffectRow label="Spend" before={spend} after={spend + amt} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Large-amount warning */}
+      {isLargeAmount && execState === 'idle' && (
+        <div style={{
+          background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)',
+          borderRadius: '0.5rem', padding: '0.5rem 0.75rem',
+          fontSize: '0.78rem', color: 'rgba(251,191,36,0.9)', lineHeight: 1.5,
+        }}>
+          ⚠ This is most of your {proposal.action === 'topup' ? 'Save' : 'Spend'} balance — double-check before confirming.
         </div>
       )}
 
