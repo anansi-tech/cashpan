@@ -32,6 +32,10 @@ export function CashPanVisual({ fillPercent, label }: CashPanVisualProps) {
               25%  { opacity: 0.6;                                            }
               100% { opacity: 0;   transform: translateY(-26px) scaleX(0.35); }
             }
+            @keyframes liquid-breathe {
+              0%, 100% { opacity: 0.35; transform: scaleX(0.88) translateX(-4%); }
+              50%       { opacity: 0.65; transform: scaleX(1.05) translateX(4%); }
+            }
           `}</style>
 
           {/* Clip path matches the pan interior */}
@@ -90,7 +94,11 @@ export function CashPanVisual({ fillPercent, label }: CashPanVisualProps) {
             ry={4.5}
             fill="url(#shimmer)"
             clipPath="url(#pan-clip)"
-            style={{ transition: 'cy 1.8s cubic-bezier(0.4, 0, 0.2, 1), rx 1.8s ease' }}
+            style={{
+              transition: 'cy 1.8s cubic-bezier(0.4, 0, 0.2, 1), rx 1.8s ease',
+              animation: 'liquid-breathe 4s ease-in-out infinite',
+              transformOrigin: '160px 50%',
+            }}
           />
         )}
 

@@ -64,9 +64,11 @@ export function LiveDashboard({ initial }: LiveDashboardProps) {
       ? projectSavings(auth.savingsPrincipal, auth.rateBps, auth.periodEpochs, elapsed)
       : auth.savingsValue;
     setDisplayed((prev) => {
-      const diff = projected - prev.savingsValue;
-      const eased = Math.abs(diff) < 1 ? projected : prev.savingsValue + diff * 0.08;
-      return { ...prev, savingsValue: eased, currentEpoch: auth.currentEpoch };
+      const savingsDiff = projected - prev.savingsValue;
+      const easedSavings = Math.abs(savingsDiff) < 1 ? projected : prev.savingsValue + savingsDiff * 0.08;
+      const liquidDiff = auth.liquid - prev.liquid;
+      const easedLiquid = Math.abs(liquidDiff) < 1 ? auth.liquid : prev.liquid + liquidDiff * 0.06;
+      return { ...prev, savingsValue: easedSavings, liquid: easedLiquid, currentEpoch: auth.currentEpoch };
     });
     rafRef.current = requestAnimationFrame(animate);
   }, []);
