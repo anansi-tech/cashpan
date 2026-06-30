@@ -27,6 +27,8 @@ export interface VaultRecord {
   createdAt: Date;
   eventCursor?: string;
   contacts?: Contact[];
+  buffer?: string;
+  band?: string;
 }
 
 type VaultDoc = VaultRecord & Document;
@@ -51,6 +53,8 @@ const VaultSchema = new Schema<VaultDoc>({
   createdAt:     { type: Date, default: () => new Date() },
   eventCursor:   { type: String },
   contacts:      { type: [ContactSchema], default: [] },
+  buffer:        { type: String },
+  band:          { type: String },
 });
 
 function getModel(): Model<VaultDoc> {
@@ -82,6 +86,13 @@ export async function listVaults(): Promise<VaultRecord[]> {
 
 export async function getActiveVault(identityKey: string): Promise<VaultRecord | null> {
   return getByIdentity(identityKey);
+}
+
+// ─── Settings (per-user buffer/band) ─────────────────────────────────────────
+
+export async function updateSettings(identityKey: string, settings: { buffer?: string; band?: string }): Promise<void> {
+  await connectDB();
+  await getModel().updateOne({ identityKey }, { $set: settings });
 }
 
 // ─── Cursor (watcher durable bookmark) ───────────────────────────────────────

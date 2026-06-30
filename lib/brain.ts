@@ -1,20 +1,16 @@
 /**
- * Brain: read-time proactive proposal computation.
+ * Brain: proactive proposal computation.
  *
- * Computes advisory proposals from current chain state on every app open.
+ * Pure layer: computeProposals takes already-fetched data and returns proposals.
+ * Async layer: computeReadTimeProposals fetches data and delegates to the pure layer.
+ *
  * INVARIANT: reads only — no keys, no signing, no Transaction objects here.
- *
- * Two proposals:
- *   add-to-cashpan — wallet holds COIN_TYPE coins not yet in the vault
- *   sweep-to-save  — vault Spend > buffer + band (mirrors decide() logic)
- *
- * This is the correctness backstop: a proposal can never be silently missed
- * because it is recomputed fresh each time the user opens the app.
  */
 
 import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import { humanToBase, baseToHuman } from './coin-config';
 import { getBalances } from './read-layer';
+import type { Balances } from './read-layer';
 
 const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet') as 'testnet';
 
@@ -23,6 +19,11 @@ function makeClient(): SuiJsonRpcClient {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface WalletCoin {
+  coinObjectId: string;
+  balance: string;
+}
 
 export interface AddToCashPanProposal {
   type: 'add-to-cashpan';
@@ -39,38 +40,31 @@ export interface SweepToSaveProposal {
 
 export type BrainProposal = AddToCashPanProposal | SweepToSaveProposal;
 
-// ─── Core ─────────────────────────────────────────────────────────────────────
+// ─── Pure core ────────────────────────────────────────────────────────────────
 
-export async function computeReadTimeProposals(
-  walletAddress: string,
-  vaultId: string,
-  coinType: string,
-): Promise<BrainProposal[]> {
-  const client = makeClient();
-  const buffer = humanToBase(process.env.BUFFER ?? '0');
-  const band = humanToBase(process.env.BAND ?? '0');
-
-  const [coinsResult, balances] = await Promise.all([
-    client.getCoins({ owner: walletAddress, coinType, limit: 50 }),
-    getBalances(vaultId),
-  ]);
-
+export function computeProposals(
+  walletCoins: WalletCoin[],
+  balances: Balances,
+  settings: { buffer: string; band: string },
+): BrainProposal[] {
   const proposals: BrainProposal[] = [];
 
   // 1. Add-to-CashPan: wallet holds COIN_TYPE not yet deposited
-  if (coinsResult.data.length > 0) {
-    const totalBase = coinsResult.data.reduce((sum, c) => sum + BigInt(c.balance), 0n);
+  if (walletCoins.length > 0) {
+    const totalBase = walletCoins.reduce((sum, c) => sum + BigInt(c.balance), 0n);
     if (totalBase > 0n) {
       proposals.push({
         type: 'add-to-cashpan',
         totalAmountSui: baseToHuman(totalBase),
-        coinIds: coinsResult.data.map((c) => c.coinObjectId),
+        coinIds: walletCoins.map((c) => c.coinObjectId),
       });
     }
   }
 
   // 2. Sweep-to-Save: Spend > buffer + band (mirrors decide() without perTxCap,
   //    since owner_rebalance is uncapped for the owner)
+  const buffer = humanToBase(settings.buffer);
+  const band = humanToBase(settings.band);
   if (buffer + band > 0n) {
     const liquid = BigInt(balances.liquid);
     if (liquid > buffer + band) {
@@ -84,4 +78,24 @@ export async function computeReadTimeProposals(
   }
 
   return proposals;
+}
+
+// ─── Async convenience (fetches, then delegates to pure layer) ────────────────
+
+export async function computeReadTimeProposals(
+  walletAddress: string,
+  vaultId: string,
+  coinType: string,
+  settings: { buffer: string; band: string } = { buffer: '50', band: '5' },
+): Promise<BrainProposal[]> {
+  const client = makeClient();
+  const [coinsResult, balances] = await Promise.all([
+    client.getCoins({ owner: walletAddress, coinType, limit: 50 }),
+    getBalances(vaultId),
+  ]);
+  const walletCoins: WalletCoin[] = coinsResult.data.map((c) => ({
+    coinObjectId: c.coinObjectId,
+    balance: c.balance,
+  }));
+  return computeProposals(walletCoins, balances, settings);
 }

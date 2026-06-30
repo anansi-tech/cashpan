@@ -231,7 +231,10 @@ export async function getAgentActivity(
   return events.slice(0, limit);
 }
 
-export async function getConfig(vaultId: string): Promise<Config> {
+export async function getConfig(
+  vaultId: string,
+  userSettings?: { buffer?: string; band?: string },
+): Promise<Config> {
   const client = makeClient();
   const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
 
@@ -240,8 +243,8 @@ export async function getConfig(vaultId: string): Promise<Config> {
   const vf = vaultObj.data.content.fields as Record<string, unknown>;
 
   return {
-    buffer: process.env.BUFFER ?? '0',
-    band: process.env.BAND ?? '0',
+    buffer: userSettings?.buffer ?? '50',
+    band: userSettings?.band ?? '5',
     perTxCap: String(vf.per_tx_cap ?? '0'),
     dailyCap: String(vf.daily_cap ?? '0'),
     outflowPerTxCap: String(vf.outflow_per_tx_cap ?? '0'),
