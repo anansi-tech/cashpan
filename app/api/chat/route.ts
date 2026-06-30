@@ -73,7 +73,7 @@ export async function POST(req: Request) {
   const contactNames = contacts.map((c) => c.label);
 
   const result = streamText({
-    model: openai('gpt-4o-mini'),
+    model: openai('gpt-5-nano'),
     system: buildSystemPrompt(contactNames),
     messages: await convertToModelMessages(messages),
     stopWhen: stepCountIs(5),
