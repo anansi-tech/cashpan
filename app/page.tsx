@@ -107,7 +107,7 @@ export default async function Page() {
                 }}
               />
               <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>
-                Sui testnet · epoch {balances.currentEpoch}
+                Sui {process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet'} · epoch {balances.currentEpoch}
               </span>
             </div>
 
