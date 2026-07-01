@@ -1,6 +1,6 @@
 [package]
 name = "cashpan"
-edition = "2024.beta"
+edition = "2024"
 
-[addresses]
-cashpan = "0x0"
+[dependencies]
+suilend = { git = "https://github.com/solendprotocol/suilend.git", subdir = "contracts/suilend", rev = "d5ba83a617bb0778b48b0c3b1e77a87be81258ca", published-at = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf" }

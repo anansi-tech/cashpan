@@ -1,186 +1,157 @@
-/// Cashpan YieldVenue — fixed-rate reserve-funded yield boundary.
+/// Cashpan YieldVenue — Suilend cToken wrapper.
 ///
-/// Proves the architecture on testnet: funds genuinely move into a venue,
-/// value genuinely accrues over epochs, and a withdraw returns more than
-/// was deposited. Mainnet swaps this module for Sui Dollar / Scallop /
-/// Navi / Suilend behind the same four-function boundary.
+/// Holds commingled CToken<P,T> balance across all vaults; each Position
+/// tracks its cToken share. Underlying value accrues as the Suilend reserve
+/// ratio rises from borrower interest — no fixed rate, no reserve fund.
 ///
-/// // SWAP POINT (mainnet): replace deposit / withdraw / current_value /
-/// // fund_reserve with the real protocol's entry points. The vault call
-/// // sites are in cashpan::vault::rebalance (sweep and topup branches).
+/// P = market witness (suilend::suilend::MAIN_POOL)
+/// T = underlying coin (native USDC)
+///
+/// // SWAP POINT: deposit / extend_position / withdraw / current_value
+/// // call into Suilend main-pool lending_market.
 module cashpan::yield_venue;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
+use sui::clock::Clock;
+use suilend::lending_market::{Self, LendingMarket, RateLimiterExemption};
+use suilend::reserve::{Self, CToken};
+use suilend::decimal;
 
-// ============ Error codes ============
-
-const EReserveInsufficient: u64 = 0;
 const EWithdrawExceedsValue: u64 = 1;
 
-// ============ Objects ============
+/// Per-vault savings record. `ctoken_amount` is this vault's share of the
+/// commingled `venue.ctokens` pool. `has store` so it lives inside Vault<T>.
+public struct Position has store { ctoken_amount: u64 }
 
-/// Per-vault accounting record. `has store` so it lives inside Vault<T>.
-/// No UID — it is not a top-level object.
-public struct Position has store {
-    principal: u64,
-    entry_epoch: u64,
-}
-
-/// Shared venue. `pool` holds deposited principal; `reserve` funds interest.
-///
-/// rate_bps / period_epochs define the fixed APR:
-///   value = principal + principal * rate_bps * elapsed_epochs
-///                       / (10_000 * period_epochs)
-public struct YieldVenue<phantom T> has key {
+/// Shared venue bound to one Suilend reserve. All vaults write into the same
+/// commingled `ctokens` balance; each Position tracks its cToken count.
+public struct YieldVenue<phantom P, phantom T> has key {
     id: UID,
-    pool: Balance<T>,
-    reserve: Balance<T>,
-    rate_bps: u64,
-    period_epochs: u64,
+    ctokens: Balance<CToken<P, T>>,
+    reserve_array_index: u64,
 }
 
-// ============ View helpers ============
-
-public fun rate_bps<T>(venue: &YieldVenue<T>): u64 { venue.rate_bps }
-
-public fun period_epochs<T>(venue: &YieldVenue<T>): u64 { venue.period_epochs }
-
-public fun reserve_balance<T>(venue: &YieldVenue<T>): u64 { balance::value(&venue.reserve) }
-
-public fun pool_balance<T>(venue: &YieldVenue<T>): u64 { balance::value(&venue.pool) }
-
-public fun position_principal(pos: &Position): u64 { pos.principal }
-
-public fun position_entry_epoch(pos: &Position): u64 { pos.entry_epoch }
-
-/// Current value of a position: principal + accrued interest.
-public fun current_value<T>(venue: &YieldVenue<T>, pos: &Position, ctx: &TxContext): u64 {
-    let elapsed = ctx.epoch() - pos.entry_epoch;
-    pos.principal + accrued_interest(pos.principal, venue.rate_bps, elapsed, venue.period_epochs)
-}
-
-// ============ Internal math ============
-
-fun accrued_interest(principal: u64, rate_bps: u64, elapsed: u64, period_epochs: u64): u64 {
-    if (elapsed == 0 || principal == 0 || period_epochs == 0) return 0;
-    let numerator = (principal as u128) * (rate_bps as u128) * (elapsed as u128);
-    let denominator = 10_000u128 * (period_epochs as u128);
-    (numerator / denominator) as u64
-}
-
-// ============ Setup ============
-
-/// Create and share a new YieldVenue. Call once during deployment.
-public fun create_venue<T>(rate_bps: u64, period_epochs: u64, ctx: &mut TxContext) {
-    transfer::share_object(YieldVenue<T> {
+/// Create and share the venue. `reserve_array_index` is the position of the
+/// target reserve in the LendingMarket's reserves vector — resolved at deploy
+/// time by matching coinType, never hardcoded in source.
+public fun create_venue<P, T>(reserve_array_index: u64, ctx: &mut TxContext) {
+    transfer::share_object(YieldVenue<P, T> {
         id: object::new(ctx),
-        pool: balance::zero(),
-        reserve: balance::zero(),
-        rate_bps,
-        period_epochs,
+        ctokens: balance::zero(),
+        reserve_array_index,
     });
 }
 
-/// Pre-fund the reserve so it can pay out interest. Owner-controlled.
-public fun fund_reserve<T>(venue: &mut YieldVenue<T>, coin: Coin<T>) {
-    balance::join(&mut venue.reserve, coin::into_balance(coin));
-}
+/// Returns the cToken count held by this position (proxy for "principal").
+public fun position_principal(pos: &Position): u64 { pos.ctoken_amount }
 
-// ============ Core API (the boundary) ============
-
-/// Deposit principal into the venue; returns a fresh Position.
-public fun deposit<T>(venue: &mut YieldVenue<T>, coin: Coin<T>, ctx: &TxContext): Position {
-    let principal = coin::value(&coin);
-    balance::join(&mut venue.pool, coin::into_balance(coin));
-    Position { principal, entry_epoch: ctx.epoch() }
-}
-
-/// Extend an existing position with additional principal.
-/// Accrued interest is realized first (folded into principal, reset entry_epoch).
-/// Aborts if the reserve cannot cover interest already owed.
-public fun extend_position<T>(
-    venue: &mut YieldVenue<T>,
-    position: &mut Position,
+/// Deposit underlying coins → mint cTokens → open a new Position.
+public fun deposit<P, T>(
+    lm: &mut LendingMarket<P>,
+    venue: &mut YieldVenue<P, T>,
+    clock: &Clock,
     coin: Coin<T>,
-    ctx: &TxContext,
-) {
-    let current_epoch = ctx.epoch();
-    let elapsed = current_epoch - position.entry_epoch;
-    let accrued = accrued_interest(
-        position.principal,
-        venue.rate_bps,
-        elapsed,
-        venue.period_epochs,
+    ctx: &mut TxContext,
+): Position {
+    let ct = lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
+        lm, venue.reserve_array_index, clock, coin, ctx,
     );
-
-    if (accrued > 0) {
-        assert!(balance::value(&venue.reserve) >= accrued, EReserveInsufficient);
-        let interest_bal = balance::split(&mut venue.reserve, accrued);
-        balance::join(&mut venue.pool, interest_bal);
-        position.principal = position.principal + accrued;
-    };
-
-    position.principal = position.principal + coin::value(&coin);
-    balance::join(&mut venue.pool, coin::into_balance(coin));
-    position.entry_epoch = current_epoch;
+    let minted = coin::value(&ct);
+    balance::join(&mut venue.ctokens, coin::into_balance(ct));
+    Position { ctoken_amount: minted }
 }
 
-/// Withdraw `amount` of total *value* (principal + proportional interest).
-///
-/// Pro-rata split: principal_out = position.principal * amount / total_value.
-/// Interest portion is paid from `reserve`. Aborts if reserve is insufficient.
-///
-/// v1 simplification: remainder resets entry_epoch to now. Production uses
-/// a share/exchange-rate model to avoid this epoch-reset compounding behaviour.
-public fun withdraw<T>(
-    venue: &mut YieldVenue<T>,
-    position: &mut Position,
+/// Deposit more underlying → mint additional cTokens → extend existing Position.
+public fun extend_position<P, T>(
+    lm: &mut LendingMarket<P>,
+    venue: &mut YieldVenue<P, T>,
+    clock: &Clock,
+    pos: &mut Position,
+    coin: Coin<T>,
+    ctx: &mut TxContext,
+) {
+    let ct = lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
+        lm, venue.reserve_array_index, clock, coin, ctx,
+    );
+    pos.ctoken_amount = pos.ctoken_amount + coin::value(&ct);
+    balance::join(&mut venue.ctokens, coin::into_balance(ct));
+}
+
+/// Underlying value of this position: floor(ctoken_amount * ctoken_ratio).
+/// Read-only — does not mutate on-chain state.
+public fun current_value<P, T>(
+    lm: &LendingMarket<P>,
+    venue: &YieldVenue<P, T>,
+    pos: &Position,
+): u64 {
+    let ratio = {
+        let reserves = lending_market::reserves(lm);
+        let reserve = vector::borrow(reserves, venue.reserve_array_index);
+        reserve::ctoken_ratio(reserve)
+    };
+    decimal::floor(decimal::mul(decimal::from(pos.ctoken_amount), ratio))
+}
+
+/// Withdraw `amount` of underlying value from the position.
+/// Converts to cTokens (ceil division), clamps to held cTokens, redeems via Suilend.
+/// Returned coin amount may differ from `amount` by ±1 (integer rounding dust).
+/// Caps in vault.move are checked against requested `amount`, not actual.
+public fun withdraw<P, T>(
+    lm: &mut LendingMarket<P>,
+    venue: &mut YieldVenue<P, T>,
+    clock: &Clock,
+    pos: &mut Position,
     amount: u64,
     ctx: &mut TxContext,
 ): Coin<T> {
-    let current_epoch = ctx.epoch();
-    let elapsed = current_epoch - position.entry_epoch;
-    let accrued = accrued_interest(
-        position.principal,
-        venue.rate_bps,
-        elapsed,
-        venue.period_epochs,
-    );
-    let total_value = position.principal + accrued;
-
-    assert!(amount <= total_value, EWithdrawExceedsValue);
-
-    let principal_out = if (total_value > 0) {
-        (position.principal * amount) / total_value
-    } else {
-        0
+    let ct_needed = {
+        let ratio = {
+            let reserves = lending_market::reserves(lm);
+            let reserve = vector::borrow(reserves, venue.reserve_array_index);
+            reserve::ctoken_ratio(reserve)
+        };
+        let value = decimal::floor(decimal::mul(decimal::from(pos.ctoken_amount), ratio));
+        assert!(amount <= value, EWithdrawExceedsValue);
+        decimal::ceil(decimal::div(decimal::from(amount), ratio))
     };
-    let interest_out = amount - principal_out;
-
-    assert!(balance::value(&venue.reserve) >= interest_out, EReserveInsufficient);
-
-    let mut out = balance::split(&mut venue.pool, principal_out);
-    if (interest_out > 0) {
-        let interest_bal = balance::split(&mut venue.reserve, interest_out);
-        balance::join(&mut out, interest_bal);
-    };
-
-    position.principal = position.principal - principal_out;
-    position.entry_epoch = current_epoch;
-
-    coin::from_balance(out, ctx)
+    let ct_take = if (ct_needed > pos.ctoken_amount) { pos.ctoken_amount } else { ct_needed };
+    pos.ctoken_amount = pos.ctoken_amount - ct_take;
+    let ct = coin::from_balance(balance::split(&mut venue.ctokens, ct_take), ctx);
+    lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
+        lm,
+        venue.reserve_array_index,
+        clock,
+        ct,
+        option::none<RateLimiterExemption<P, T>>(),
+        ctx,
+    )
 }
 
-/// Destroy a fully-withdrawn (zero-principal) position.
-public fun destroy_zero_position(position: Position) {
-    let Position { principal: _, entry_epoch: _ } = position;
+/// Redeem ALL cTokens in the position. Used by vault::redeem_position to
+/// guarantee a full drain with no rounding dust left behind.
+public fun withdraw_all<P, T>(
+    lm: &mut LendingMarket<P>,
+    venue: &mut YieldVenue<P, T>,
+    clock: &Clock,
+    pos: &mut Position,
+    ctx: &mut TxContext,
+): Coin<T> {
+    let ct_take = pos.ctoken_amount;
+    pos.ctoken_amount = 0;
+    let ct = coin::from_balance(balance::split(&mut venue.ctokens, ct_take), ctx);
+    lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
+        lm,
+        venue.reserve_array_index,
+        clock,
+        ct,
+        option::none<RateLimiterExemption<P, T>>(),
+        ctx,
+    )
 }
 
-// ============ Test helpers ============
-
-#[test_only]
-public fun e_reserve_insufficient(): u64 { EReserveInsufficient }
-
-#[test_only]
-public fun e_withdraw_exceeds_value(): u64 { EWithdrawExceedsValue }
+/// Assert the position is fully drained before dropping it.
+public fun destroy_zero_position(pos: Position) {
+    let Position { ctoken_amount } = pos;
+    assert!(ctoken_amount == 0, EWithdrawExceedsValue);
+}

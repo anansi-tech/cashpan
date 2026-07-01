@@ -9,10 +9,12 @@ module cashpan::vault;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
+use sui::clock::Clock;
 use sui::event;
 use std::option::{Self, Option};
 use sui::vec_set::{Self, VecSet};
 use cashpan::yield_venue::{Self, YieldVenue, Position};
+use suilend::lending_market::LendingMarket;
 
 // ============ Direction constants ============
 
@@ -109,10 +111,10 @@ public struct RebalanceEvent has copy, drop {
 
 public fun liquid_balance<T>(vault: &Vault<T>): u64 { balance::value(&vault.liquid) }
 
-/// Current savings value (principal + accrued interest). Requires the venue to compute.
-public fun savings_balance<T>(vault: &Vault<T>, venue: &YieldVenue<T>, ctx: &TxContext): u64 {
+/// Current savings value (cTokens converted to underlying via Suilend ratio).
+public fun savings_balance<P, T>(vault: &Vault<T>, venue: &YieldVenue<P, T>, lm: &LendingMarket<P>): u64 {
     if (option::is_none(&vault.savings_position)) return 0;
-    yield_venue::current_value(venue, option::borrow(&vault.savings_position), ctx)
+    yield_venue::current_value(lm, venue, option::borrow(&vault.savings_position))
 }
 
 public fun per_tx_cap<T>(vault: &Vault<T>): u64 { vault.per_tx_cap }
@@ -135,8 +137,8 @@ public fun is_allowlisted<T>(vault: &Vault<T>, addr: address): bool {
 
 /// Create a new vault (shared) bound to `venue`. Returns OwnerCap to the caller.
 /// `payout_address` is where agent withdrawals always land.
-public fun create_vault<T>(
-    venue: &YieldVenue<T>,
+public fun create_vault<P, T>(
+    venue: &YieldVenue<P, T>,
     payout_address: address,
     per_tx_cap: u64,
     daily_cap: u64,
@@ -213,11 +215,13 @@ public fun withdraw<T>(
 }
 
 /// Redeem the full savings position back to liquid. Owner only.
-/// Use this before withdrawing everything or swapping venues.
-public fun redeem_position<T>(
+/// Uses withdraw_all to drain every cToken, avoiding rounding dust.
+public fun redeem_position<P, T>(
     owner_cap: &OwnerCap,
     vault: &mut Vault<T>,
-    venue: &mut YieldVenue<T>,
+    venue: &mut YieldVenue<P, T>,
+    lm: &mut LendingMarket<P>,
+    clock: &Clock,
     ctx: &mut TxContext,
 ) {
     assert!(owner_cap.vault_id == object::id(vault), ENotOwner);
@@ -225,16 +229,9 @@ public fun redeem_position<T>(
     if (option::is_none(&vault.savings_position)) return;
 
     let mut position = option::extract(&mut vault.savings_position);
-    let principal = yield_venue::position_principal(&position);
-    let current_value = yield_venue::current_value(venue, &position, ctx);
-    let coin = yield_venue::withdraw(venue, &mut position, current_value, ctx);
+    let coin = yield_venue::withdraw_all(lm, venue, clock, &mut position, ctx);
     balance::join(&mut vault.liquid, coin::into_balance(coin));
-
-    if (principal == 0 || yield_venue::position_principal(&position) == 0) {
-        yield_venue::destroy_zero_position(position);
-    } else {
-        option::fill(&mut vault.savings_position, position);
-    };
+    yield_venue::destroy_zero_position(position);
 }
 
 // ============ Owner outflow management ============
@@ -367,13 +364,15 @@ public fun agent_send<T>(
 
 /// OwnerCap-gated sweep/topup — unrestricted (no per-tx or daily caps).
 ///
-/// Routing mirrors `rebalance`: SWEEP deposits to venue, TOPUP withdraws.
+/// Routing mirrors `rebalance`: SWEEP deposits to Suilend, TOPUP redeems.
 /// Emits the same RebalanceEvent so event listeners see owner and agent moves identically.
-/// This is what the user calls from their zkLogin-signed transaction in Block 4+.
-public fun owner_rebalance<T>(
+/// This is what the user calls from their zkLogin-signed transaction.
+public fun owner_rebalance<P, T>(
     owner_cap: &OwnerCap,
     vault: &mut Vault<T>,
-    venue: &mut YieldVenue<T>,
+    venue: &mut YieldVenue<P, T>,
+    lm: &mut LendingMarket<P>,
+    clock: &Clock,
     direction: u8,
     amount: u64,
     ctx: &mut TxContext,
@@ -383,26 +382,28 @@ public fun owner_rebalance<T>(
 
     let current_epoch = ctx.epoch();
     let savings_value_after: u64;
+    let amount_emitted: u64;
 
     if (direction == SWEEP) {
         assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
         let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
 
         if (option::is_none(&vault.savings_position)) {
-            let pos = yield_venue::deposit(venue, coin, ctx);
+            let pos = yield_venue::deposit(lm, venue, clock, coin, ctx);
             option::fill(&mut vault.savings_position, pos);
         } else {
-            yield_venue::extend_position(venue, option::borrow_mut(&mut vault.savings_position), coin, ctx);
+            yield_venue::extend_position(lm, venue, clock, option::borrow_mut(&mut vault.savings_position), coin, ctx);
         };
 
         savings_value_after = yield_venue::current_value(
-            venue, option::borrow(&vault.savings_position), ctx,
+            lm, venue, option::borrow(&vault.savings_position),
         );
+        amount_emitted = amount;
     } else if (direction == TOPUP) {
         assert!(option::is_some(&vault.savings_position), ENoSavingsPosition);
-        let position = option::borrow_mut(&mut vault.savings_position);
-        let coin = yield_venue::withdraw(venue, position, amount, ctx);
-        balance::join(&mut vault.liquid, coin::into_balance(coin));
+        let out = yield_venue::withdraw(lm, venue, clock, option::borrow_mut(&mut vault.savings_position), amount, ctx);
+        amount_emitted = coin::value(&out);
+        balance::join(&mut vault.liquid, coin::into_balance(out));
 
         if (yield_venue::position_principal(option::borrow(&vault.savings_position)) == 0) {
             let empty = option::extract(&mut vault.savings_position);
@@ -410,7 +411,7 @@ public fun owner_rebalance<T>(
             savings_value_after = 0;
         } else {
             savings_value_after = yield_venue::current_value(
-                venue, option::borrow(&vault.savings_position), ctx,
+                lm, venue, option::borrow(&vault.savings_position),
             );
         };
     } else {
@@ -420,24 +421,27 @@ public fun owner_rebalance<T>(
     event::emit(RebalanceEvent {
         vault_id: object::id(vault),
         direction,
-        amount,
+        amount: amount_emitted,
         liquid_after: balance::value(&vault.liquid),
         savings_value_after,
         epoch: current_epoch,
     });
 }
 
-/// Move `amount` between liquid and the yield venue in the given `direction`.
+/// Move `amount` between liquid and Suilend in the given `direction`.
 ///
-/// SWEEP (0): splits `amount` from liquid → venue deposit (extends or creates position).
-/// TOPUP  (1): withdraws `amount` of value from venue → liquid (returns principal + interest).
+/// SWEEP (0): splits `amount` from liquid → Suilend deposit (extends or creates position).
+/// TOPUP  (1): withdraws `amount` of value from Suilend → liquid.
+///             Emits actual coin value (may differ from `amount` by dust).
 ///
 /// Guards: nonce validity → wrong venue → per-tx cap → daily cap → source balance.
 /// Cannot send funds to an arbitrary address — moves are vault ↔ venue only.
-public fun rebalance<T>(
+public fun rebalance<P, T>(
     agent_cap: &AgentCap,
     vault: &mut Vault<T>,
-    venue: &mut YieldVenue<T>,
+    venue: &mut YieldVenue<P, T>,
+    lm: &mut LendingMarket<P>,
+    clock: &Clock,
     direction: u8,
     amount: u64,
     ctx: &mut TxContext,
@@ -447,7 +451,7 @@ public fun rebalance<T>(
     assert!(agent_cap.nonce == vault.agent_nonce, EAgentRevoked);
     assert!(object::id(venue) == vault.venue_id, EWrongVenue);
 
-    // Per-tx cap.
+    // Per-tx cap (checked against requested amount).
     assert!(amount <= vault.per_tx_cap, EExceedsPerTxCap);
 
     // Daily cap — reset on new epoch.
@@ -460,26 +464,28 @@ public fun rebalance<T>(
     assert!(vault.daily_spent + amount <= vault.daily_cap, EDailyCapExceeded);
 
     let savings_value_after: u64;
+    let amount_emitted: u64;
 
     if (direction == SWEEP) {
         assert!(balance::value(&vault.liquid) >= amount, EInsufficientLiquid);
         let coin = coin::from_balance(balance::split(&mut vault.liquid, amount), ctx);
 
         if (option::is_none(&vault.savings_position)) {
-            let pos = yield_venue::deposit(venue, coin, ctx);
+            let pos = yield_venue::deposit(lm, venue, clock, coin, ctx);
             option::fill(&mut vault.savings_position, pos);
         } else {
-            yield_venue::extend_position(venue, option::borrow_mut(&mut vault.savings_position), coin, ctx);
+            yield_venue::extend_position(lm, venue, clock, option::borrow_mut(&mut vault.savings_position), coin, ctx);
         };
 
         savings_value_after = yield_venue::current_value(
-            venue, option::borrow(&vault.savings_position), ctx,
+            lm, venue, option::borrow(&vault.savings_position),
         );
+        amount_emitted = amount;
     } else if (direction == TOPUP) {
         assert!(option::is_some(&vault.savings_position), ENoSavingsPosition);
-        let position = option::borrow_mut(&mut vault.savings_position);
-        let coin = yield_venue::withdraw(venue, position, amount, ctx);
-        balance::join(&mut vault.liquid, coin::into_balance(coin));
+        let out = yield_venue::withdraw(lm, venue, clock, option::borrow_mut(&mut vault.savings_position), amount, ctx);
+        amount_emitted = coin::value(&out);
+        balance::join(&mut vault.liquid, coin::into_balance(out));
 
         if (yield_venue::position_principal(option::borrow(&vault.savings_position)) == 0) {
             let empty = option::extract(&mut vault.savings_position);
@@ -487,7 +493,7 @@ public fun rebalance<T>(
             savings_value_after = 0;
         } else {
             savings_value_after = yield_venue::current_value(
-                venue, option::borrow(&vault.savings_position), ctx,
+                lm, venue, option::borrow(&vault.savings_position),
             );
         };
     } else {
@@ -499,7 +505,7 @@ public fun rebalance<T>(
     event::emit(RebalanceEvent {
         vault_id: object::id(vault),
         direction,
-        amount,
+        amount: amount_emitted,
         liquid_after: balance::value(&vault.liquid),
         savings_value_after,
         epoch: current_epoch,
