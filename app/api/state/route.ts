@@ -4,12 +4,13 @@ import { getActiveVault } from '@/lib/db/vault-registry';
 import { getBalances, getAgentActivity } from '@/lib/read-layer';
 import { computeProposals } from '@/lib/brain';
 import type { WalletCoin } from '@/lib/brain';
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
 export const dynamic = 'force-dynamic';
 
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet') as 'testnet';
+const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
+const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet') as 'mainnet' | 'testnet';
 
 export async function GET(): Promise<Response> {
   const cookieStore = await cookies();
@@ -24,7 +25,7 @@ export async function GET(): Promise<Response> {
   const addressToName: Record<string, string> = {};
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
 
-  const client = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(NETWORK), network: NETWORK });
+  const client = new SuiJsonRpcClient({ url: RPC_URL, network: NETWORK });
 
   const [balances, coinsResult, activity] = await Promise.all([
     getBalances(vault.vaultId),

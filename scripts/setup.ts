@@ -203,11 +203,11 @@ async function main() {
       P_TYPE: SUILEND_P_TYPE,
       CTOKEN_TYPE: ctokenType,
       RESERVE_INDEX: String(reserveArrayIndex),
+      SUI_RPC_URL: RPC_URL,
+      NEXT_PUBLIC_SUI_NETWORK: "mainnet",
     },
     // defaults — set only if not already present
     {
-      SUI_RPC_URL: RPC_URL,
-      NEXT_PUBLIC_SUI_NETWORK: "mainnet",
       BUFFER: BUFFER_HUMAN,
       BAND: BAND_HUMAN,
     },
