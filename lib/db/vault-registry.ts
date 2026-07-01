@@ -131,3 +131,18 @@ export async function removeContact(identityKey: string, label: string): Promise
     { $pull: { contacts: { label } } },
   );
 }
+
+export async function patchContact(
+  identityKey: string,
+  oldLabel: string,
+  newLabel: string,
+  newAddress: string,
+): Promise<void> {
+  if (!newLabel.trim()) throw new Error('Label is required');
+  if (!SUI_ADDRESS_RE.test(newAddress.trim())) throw new Error('Invalid Sui address (must be 0x + 64 hex chars)');
+  await connectDB();
+  await getModel().updateOne(
+    { identityKey, 'contacts.label': oldLabel },
+    { $set: { 'contacts.$.label': newLabel.trim(), 'contacts.$.address': newAddress.trim() } },
+  );
+}

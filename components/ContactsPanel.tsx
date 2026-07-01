@@ -55,10 +55,57 @@ export function ContactsPanel() {
   const [adding, setAdding] = useState(false);
   const [apiError, setApiError] = useState('');
 
+  // Edit state
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
   const addressError = address.trim() && !SUI_RE.test(address.trim())
     ? 'Must be 0x followed by 64 hex characters'
     : '';
   const canAdd = !!label.trim() && SUI_RE.test(address.trim()) && !adding;
+
+  const startEdit = (c: Contact) => {
+    setEditing(c.label);
+    setEditLabel(c.label);
+    setEditAddress(c.address);
+    setEditError('');
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setEditError('');
+  };
+
+  const handleEdit = async (oldLabel: string) => {
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldLabel, label: editLabel.trim(), address: editAddress.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setEditError(data.error ?? 'Failed to update contact');
+      } else {
+        setEditing(null);
+        refresh();
+      }
+    } catch {
+      setEditError('Network issue. Please try again.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const editAddressError = editAddress.trim() && !SUI_RE.test(editAddress.trim())
+    ? 'Must be 0x + 64 hex chars'
+    : '';
+  const canSaveEdit = !!editLabel.trim() && SUI_RE.test(editAddress.trim()) && !editSaving;
 
   const handleAdd = async () => {
     setApiError('');
@@ -117,33 +164,112 @@ export function ContactsPanel() {
               <div
                 key={c.label}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '0.75rem',
                   padding: '0.625rem 0.875rem',
                   background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid var(--color-border)',
+                  border: `1px solid ${editing === c.label ? 'rgba(16,185,129,0.3)' : 'var(--color-border)'}`,
                   borderRadius: '0.75rem',
+                  transition: 'border-color 0.15s',
                 }}
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--color-text)' }}>
-                    {c.label}
+                {editing === c.label ? (
+                  /* Inline edit form */
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <input
+                      value={editLabel}
+                      onChange={(e) => setEditLabel(e.target.value)}
+                      placeholder="Name"
+                      style={inputStyle}
+                      onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(16,185,129,0.45)')}
+                      onBlur={(e) => (e.currentTarget.style.borderColor = 'rgba(148,163,184,0.18)')}
+                    />
+                    <div>
+                      <input
+                        value={editAddress}
+                        onChange={(e) => setEditAddress(e.target.value)}
+                        placeholder="0x… Sui address"
+                        style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}
+                        onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(16,185,129,0.45)')}
+                        onBlur={(e) => (e.currentTarget.style.borderColor = 'rgba(148,163,184,0.18)')}
+                      />
+                      {editAddressError && (
+                        <div style={{ color: 'rgba(252,165,165,0.9)', fontSize: '0.7rem', marginTop: '0.2rem', paddingLeft: '0.25rem' }}>
+                          {editAddressError}
+                        </div>
+                      )}
+                    </div>
+                    {editError && (
+                      <div style={{ color: 'rgba(252,165,165,0.9)', fontSize: '0.75rem' }}>{editError}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button
+                        onClick={() => handleEdit(c.label)}
+                        disabled={!canSaveEdit}
+                        style={{
+                          flex: 1,
+                          background: canSaveEdit ? 'var(--color-savings)' : 'rgba(255,255,255,0.06)',
+                          color: canSaveEdit ? '#0a0f1e' : 'var(--color-muted)',
+                          border: 'none', borderRadius: '0.5rem',
+                          padding: '0.35rem', fontSize: '0.8rem', fontWeight: 700,
+                          cursor: canSaveEdit ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        {editSaving ? '…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(148,163,184,0.2)',
+                          color: 'var(--color-muted)',
+                          borderRadius: '0.5rem',
+                          padding: '0.35rem 0.65rem',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                  <CopyAddress address={c.address} />
-                </div>
-                <button
-                  onClick={() => handleRemove(c.label)}
-                  title="Remove contact"
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--color-muted)', fontSize: '1rem',
-                    padding: '0.25rem', lineHeight: 1, flexShrink: 0,
-                    minWidth: '32px', minHeight: '32px',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(239,68,68,0.8)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-muted)')}
-                >
-                  ✕
-                </button>
+                ) : (
+                  /* Normal row */
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--color-text)' }}>
+                        {c.label}
+                      </div>
+                      <CopyAddress address={c.address} />
+                    </div>
+                    <button
+                      onClick={() => startEdit(c)}
+                      title="Edit contact"
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--color-muted)', fontSize: '0.85rem',
+                        padding: '0.25rem', lineHeight: 1, flexShrink: 0,
+                        minWidth: '28px', minHeight: '28px',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-text)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-muted)')}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => handleRemove(c.label)}
+                      title="Remove contact"
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--color-muted)', fontSize: '1rem',
+                        padding: '0.25rem', lineHeight: 1, flexShrink: 0,
+                        minWidth: '28px', minHeight: '28px',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(239,68,68,0.8)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-muted)')}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
