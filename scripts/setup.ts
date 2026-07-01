@@ -1,15 +1,13 @@
 /**
- * Cashpan setup script — publishes vault + yield_venue + test_usd,
- * mints test USD, funds the venue reserve, and writes IDs to .env.
+ * Cashpan setup script — publishes vault + yield_venue on mainnet, creates
+ * the Suilend-backed YieldVenue, and writes IDs to .env.
  *
  * Vaults are created per-user at sign-in — do NOT create one here.
  *
  * Prerequisites:
- *   - `sui` CLI with the owner keypair active on testnet
+ *   - `sui` CLI with the owner keypair active on mainnet
+ *   - Native USDC in the owner wallet (for gas; no USDC needed for setup itself)
  *   - Run: npm run setup
- *
- * To switch stablecoins on mainnet: set COIN_TYPE / COIN_DECIMALS / COIN_SYMBOL
- * in .env and skip the test_usd mint step — no code change needed.
  */
 
 import "dotenv/config";
@@ -25,33 +23,29 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const MOVE_DIR = join(ROOT, "move");
 
-const RPC_URL = process.env.SUI_RPC_URL ?? "https://fullnode.testnet.sui.io:443";
+const RPC_URL = process.env.SUI_RPC_URL ?? "https://fullnode.mainnet.sui.io:443";
 
-// ─── Human-decimal amounts (coin-type-agnostic) ───────────────────────────────
-// All values are COIN_SYMBOL units (e.g. "50" = $50.00 at 6 decimals).
-// Converted to base units via humanToBase() after COIN_DECIMALS is known.
+// Suilend mainnet main-pool constants (from @suilend/sdk / on-chain registry).
+// LENDING_MARKET_ID and P_TYPE are stable published addresses.
+// reserve_array_index is resolved dynamically at deploy time by coinType match.
+const SUILEND_LENDING_MARKET_ID = "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1";
+const SUILEND_P_TYPE = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::suilend::MAIN_POOL";
 
-const COIN_DECIMALS_DEFAULT = 6; // test_usd is 6-decimal
+// Native USDC on Sui mainnet (NOT bridged wUSDC).
+const NATIVE_USDC_TYPE = "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC";
+const COIN_DECIMALS = 6;
+const COIN_SYMBOL = "USD";
 
-const RATE_BPS = 1_000n;   // 10% / epoch
-const PERIOD_EPOCHS = 1n;
-
-const BUFFER_HUMAN           = "50";   // $50 target liquid
-const BAND_HUMAN             = "5";    // $5 dead-band
-const RESERVE_FUND_HUMAN     = "200";  // $200 venue reserve
-const MINT_AMOUNT_HUMAN      = "2000"; // total minted (covers all needs)
+const BUFFER_HUMAN = "50";
+const BAND_HUMAN   = "5";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function humanToBase(human: string, decimals: number): bigint {
-  return BigInt(Math.round(parseFloat(human) * 10 ** decimals));
-}
 
 /**
  * Merge updates into an existing .env file without touching other keys.
  *
  * `always` keys: overwrite existing value, or append if missing.
- * `defaults` keys: only append if missing — never overwrite (user may have tuned them).
+ * `defaults` keys: only append if missing — never overwrite.
  */
 function patchEnv(
   rootDir: string,
@@ -85,10 +79,7 @@ function patchEnv(
 }
 
 /**
- * Clean Move artifacts that block a fresh publish:
- *   Move.lock    — regenerated each time; stale lock blocks republish
- *   Published.toml — records prior publication addresses; must be cleared for a new deploy
- *   published-at in Move.toml — written by `sui client publish`; must be absent for a new package
+ * Clean Move artifacts that block a fresh publish.
  */
 function resetMovePackage(moveDir: string): void {
   const lockPath = join(moveDir, "Move.lock");
@@ -97,7 +88,6 @@ function resetMovePackage(moveDir: string): void {
     console.log("   Deleted Move.lock");
   }
 
-  // Reset Published.toml to an empty header (the CLI writes fresh entries after publish)
   const pubPath = join(moveDir, "Published.toml");
   writeFileSync(pubPath, "# Managed by setup.ts — regenerated on each npm run setup\n");
   console.log("   Reset Published.toml");
@@ -125,18 +115,59 @@ async function waitForTx(client: SuiJsonRpcClient, digest: string): Promise<void
   throw new Error(`Transaction ${digest} not confirmed after 30s`);
 }
 
+/**
+ * Fetch the Suilend main-pool LendingMarket and find the reserve whose
+ * coinType matches `targetCoinType`. Returns the reserve_array_index.
+ * Strips leading '0x' before comparing since on-chain coinType names omit it.
+ */
+async function findReserveIndex(
+  client: SuiJsonRpcClient,
+  lendingMarketId: string,
+  targetCoinType: string,
+): Promise<number> {
+  const obj = await client.getObject({ id: lendingMarketId, options: { showContent: true } });
+  const fields = obj.data?.content?.fields as Record<string, unknown> | undefined;
+  const reserves = fields?.reserves as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(reserves)) throw new Error("LendingMarket reserves not found in object");
+
+  // On-chain coinType names omit the leading 0x
+  const stripped = targetCoinType.replace(/^0x/, "");
+
+  for (let i = 0; i < reserves.length; i++) {
+    const r = reserves[i] as Record<string, unknown>;
+    const coinTypeName = (
+      (r?.fields as Record<string, unknown>)?.coin_type as
+        | { fields?: { name?: string } }
+        | undefined
+    )?.fields?.name ?? "";
+    if (coinTypeName === stripped) return i;
+  }
+
+  throw new Error(
+    `No reserve found for coinType ${targetCoinType} in LendingMarket ${lendingMarketId}`,
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const client = new SuiJsonRpcClient({ url: RPC_URL });
+  const client = new SuiJsonRpcClient({ url: RPC_URL, network: "mainnet" });
   const keypair = ownerKeypair();
   const ownerAddress = keypair.getPublicKey().toSuiAddress();
 
-  console.log("=== Cashpan Setup ===\n");
-  console.log(`Owner: ${ownerAddress}\n`);
+  console.log("=== Cashpan Setup (mainnet / Suilend) ===\n");
+  console.log(`Owner:          ${ownerAddress}`);
+  console.log(`LendingMarket:  ${SUILEND_LENDING_MARKET_ID}`);
+  console.log(`P_TYPE:         ${SUILEND_P_TYPE}`);
+  console.log(`COIN_TYPE:      ${NATIVE_USDC_TYPE}\n`);
 
-  // ── 1. Publish ──────────────────────────────────────────────────────────────
-  console.log("1. Publishing Move package (vault + yield_venue + test_usd)...");
+  // ── 1. Resolve native-USDC reserve index ───────────────────────────────────
+  console.log("1. Resolving native-USDC reserve_array_index from Suilend main pool...");
+  const reserveArrayIndex = await findReserveIndex(client, SUILEND_LENDING_MARKET_ID, NATIVE_USDC_TYPE);
+  console.log(`   reserve_array_index = ${reserveArrayIndex}`);
+
+  // ── 2. Publish Move package ─────────────────────────────────────────────────
+  console.log("\n2. Publishing Move package (vault + yield_venue)...");
   resetMovePackage(MOVE_DIR);
   const publishOutput = execSync(
     `sui client publish --gas-budget 200000000 --json "${MOVE_DIR}"`,
@@ -153,54 +184,16 @@ async function main() {
   if (!packageId) throw new Error("Could not find package ID in publish output");
   console.log(`   Package ID: ${packageId}`);
 
-  const COIN_TYPE = `${packageId}::test_usd::TEST_USD`;
-  const COIN_DECIMALS = COIN_DECIMALS_DEFAULT;
-  const COIN_SYMBOL = "USD";
-  const toBase = (human: string) => humanToBase(human, COIN_DECIMALS);
-
-  // TreasuryCap<TEST_USD> is transferred to owner by the OTW init
-  const treasuryCapId = publishResult.objectChanges?.find(
-    (c: Record<string, unknown>) =>
-      c["type"] === "created" &&
-      typeof c["objectType"] === "string" &&
-      c["objectType"].includes("TreasuryCap") &&
-      c["objectType"].includes("TEST_USD"),
-  )?.["objectId"];
-  if (!treasuryCapId) throw new Error("Could not find TreasuryCap<TEST_USD> in publish output");
-  console.log(`   TreasuryCap: ${treasuryCapId}`);
-
   const publishDigest = publishResult.digest ?? publishResult.effects?.transactionDigest;
   if (publishDigest) await waitForTx(client, publishDigest);
 
-  // ── 2. Mint test USD to owner ───────────────────────────────────────────────
-  console.log("\n2. Minting test USD...");
-  const mintTx = new Transaction();
-  mintTx.moveCall({
-    target: `${packageId}::test_usd::mint`,
-    arguments: [
-      mintTx.object(treasuryCapId),
-      mintTx.pure.u64(toBase(MINT_AMOUNT_HUMAN)),
-      mintTx.pure.address(ownerAddress),
-    ],
-  });
-  const mintResult = await client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: mintTx,
-    options: { showEffects: true },
-  });
-  if (mintResult.effects?.status.status !== "success") {
-    throw new Error(`mint failed: ${mintResult.effects?.status.error}`);
-  }
-  console.log(`   Minted $${MINT_AMOUNT_HUMAN} ${COIN_SYMBOL} to owner`);
-  await waitForTx(client, mintResult.digest);
-
   // ── 3. Create YieldVenue ────────────────────────────────────────────────────
-  console.log("\n3. Creating YieldVenue...");
+  console.log("\n3. Creating YieldVenue<MAIN_POOL, USDC>...");
   const venueTx = new Transaction();
   venueTx.moveCall({
     target: `${packageId}::yield_venue::create_venue`,
-    typeArguments: [COIN_TYPE],
-    arguments: [venueTx.pure.u64(RATE_BPS), venueTx.pure.u64(PERIOD_EPOCHS)],
+    typeArguments: [SUILEND_P_TYPE, NATIVE_USDC_TYPE],
+    arguments: [venueTx.pure.u64(reserveArrayIndex)],
   });
   const venueResult = await client.signAndExecuteTransaction({
     signer: keypair,
@@ -212,63 +205,51 @@ async function main() {
   }
   const venueId = venueResult.objectChanges?.find(
     (c: Record<string, unknown>) =>
-      c["type"] === "created" && typeof c["objectType"] === "string" && c["objectType"].includes("YieldVenue"),
+      c["type"] === "created" &&
+      typeof c["objectType"] === "string" &&
+      c["objectType"].includes("YieldVenue"),
   )?.["objectId"] as string;
   if (!venueId) throw new Error("Could not find YieldVenue ID");
   console.log(`   YieldVenue: ${venueId}`);
   await waitForTx(client, venueResult.digest);
 
-  // ── 4. Fund venue reserve ───────────────────────────────────────────────────
-  console.log("\n4. Funding venue reserve...");
-  const reserveTx = new Transaction();
-  const reserveCoin = await coinArg(client, reserveTx, ownerAddress, COIN_TYPE, toBase(RESERVE_FUND_HUMAN));
-  reserveTx.moveCall({
-    target: `${packageId}::yield_venue::fund_reserve`,
-    typeArguments: [COIN_TYPE],
-    arguments: [reserveTx.object(venueId), reserveCoin],
-  });
-  const reserveResult = await client.signAndExecuteTransaction({
-    signer: keypair,
-    transaction: reserveTx,
-    options: { showEffects: true },
-  });
-  if (reserveResult.effects?.status.status !== "success") {
-    throw new Error(`fund_reserve failed: ${reserveResult.effects?.status.error}`);
-  }
-  console.log(`   Reserve: $${RESERVE_FUND_HUMAN} ${COIN_SYMBOL}`);
-  await waitForTx(client, reserveResult.digest);
+  // ── 4. Patch .env ──────────────────────────────────────────────────────────
+  const ctokenType = `${SUILEND_P_TYPE.replace(/::suilend::MAIN_POOL$/, "")}::reserve::CToken<${SUILEND_P_TYPE},${NATIVE_USDC_TYPE}>`;
 
-  // ── 5. Patch .env (only update generated keys; preserve auth/service keys) ──
-  console.log("\n5. Patching .env...");
+  console.log("\n4. Patching .env...");
   patchEnv(
     ROOT,
-    // always overwrite — these are generated fresh every publish
+    // always overwrite — generated fresh every publish
     {
       PACKAGE_ID: packageId,
       VENUE_ID: venueId,
-      TREASURY_CAP_ID: treasuryCapId,
-      COIN_TYPE: COIN_TYPE,
+      COIN_TYPE: NATIVE_USDC_TYPE,
       COIN_DECIMALS: String(COIN_DECIMALS),
       COIN_SYMBOL: COIN_SYMBOL,
-      // NEXT_PUBLIC_COIN_* are derived from COIN_* in next.config.ts — no need to set here
+      LENDING_MARKET_ID: SUILEND_LENDING_MARKET_ID,
+      P_TYPE: SUILEND_P_TYPE,
+      CTOKEN_TYPE: ctokenType,
+      RESERVE_INDEX: String(reserveArrayIndex),
     },
-    // defaults — set only if not already present (user may have tuned these)
+    // defaults — set only if not already present
     {
       SUI_RPC_URL: RPC_URL,
+      NEXT_PUBLIC_SUI_NETWORK: "mainnet",
       BUFFER: BUFFER_HUMAN,
       BAND: BAND_HUMAN,
-      INTERVAL_MS: "300000",
     },
   );
   console.log("   Patched .env (auth/service keys preserved)");
 
   console.log("\n=== Setup complete ===");
-  console.log(`\nCOIN_TYPE: ${COIN_TYPE}`);
+  console.log(`\nCOIN_TYPE:     ${NATIVE_USDC_TYPE}`);
+  console.log(`VENUE_ID:      ${venueId}`);
+  console.log(`RESERVE_INDEX: ${reserveArrayIndex}`);
   console.log("\nStart the app:");
   console.log("  npm run dev\n");
   console.log("Explorer links:");
-  console.log(`  Package: https://suiexplorer.com/object/${packageId}?network=testnet`);
-  console.log(`  Venue:   https://suiexplorer.com/object/${venueId}?network=testnet`);
+  console.log(`  Package: https://suiexplorer.com/object/${packageId}?network=mainnet`);
+  console.log(`  Venue:   https://suiexplorer.com/object/${venueId}?network=mainnet`);
 }
 
 main().catch((e) => {
