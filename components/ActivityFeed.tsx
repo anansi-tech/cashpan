@@ -19,8 +19,26 @@ function eventColor(ev: ActivityEvent): string {
 export function ActivityFeed() {
   const { activity: events } = useVaultData();
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
+  const [expanded, setExpanded] = useState(false);
+  const [extraEvents, setExtraEvents] = useState<ActivityEvent[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => { setUpdatedAt(Date.now()); }, [events]);
+
+  const displayed = expanded ? extraEvents : events;
+
+  const handleShowMore = async () => {
+    setLoadingMore(true);
+    try {
+      const res = await fetch('/api/activity?limit=100');
+      if (res.ok) {
+        setExtraEvents(await res.json());
+        setExpanded(true);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <div
@@ -57,13 +75,13 @@ export function ActivityFeed() {
         </span>
       </div>
 
-      {events.length === 0 ? (
+      {displayed.length === 0 ? (
         <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', padding: '0.5rem 0' }}>
           No activity yet — the agent will start working once your vault has funds.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-          {events.map((ev, i) => (
+          {displayed.map((ev, i) => (
             <div
               key={ev.digest + i}
               style={{
@@ -71,7 +89,7 @@ export function ActivityFeed() {
                 alignItems: 'center',
                 gap: '0.75rem',
                 padding: '0.6rem 0',
-                borderBottom: i < events.length - 1 ? '1px solid var(--color-border)' : 'none',
+                borderBottom: i < displayed.length - 1 ? '1px solid var(--color-border)' : 'none',
               }}
             >
               {/* Icon */}
@@ -121,6 +139,29 @@ export function ActivityFeed() {
               </div>
             </div>
           ))}
+
+          {!expanded && events.length >= 20 && (
+            <button
+              onClick={handleShowMore}
+              disabled={loadingMore}
+              style={{
+                marginTop: '0.75rem',
+                background: 'transparent',
+                border: '1px solid rgba(148,163,184,0.18)',
+                borderRadius: '0.5rem',
+                padding: '0.4rem 0.75rem',
+                color: 'var(--color-muted)',
+                fontSize: '0.78rem',
+                cursor: loadingMore ? 'wait' : 'pointer',
+                alignSelf: 'center',
+                transition: 'border-color 0.15s, color 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(148,163,184,0.35)'; e.currentTarget.style.color = 'var(--color-text)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(148,163,184,0.18)'; e.currentTarget.style.color = 'var(--color-muted)'; }}
+            >
+              {loadingMore ? 'Loading…' : 'Show more'}
+            </button>
+          )}
         </div>
       )}
     </div>
