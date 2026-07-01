@@ -4,13 +4,25 @@ import { getActiveVault } from '@/lib/db/vault-registry';
 import { getBalances, getAgentActivity } from '@/lib/read-layer';
 import { computeProposals } from '@/lib/brain';
 import type { WalletCoin } from '@/lib/brain';
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 
 export const dynamic = 'force-dynamic';
 
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
-const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet') as 'mainnet' | 'testnet';
+
+async function getCoinsRaw(owner: string, coinType: string): Promise<WalletCoin[]> {
+  const res = await fetch(RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      method: 'suix_getCoins',
+      params: [owner, coinType, null, 50],
+    }),
+  });
+  const json = await res.json() as { result?: { data?: Array<{ coinObjectId: string; balance: string }> } };
+  return (json.result?.data ?? []).map((c) => ({ coinObjectId: c.coinObjectId, balance: c.balance }));
+}
 
 export async function GET(): Promise<Response> {
   const cookieStore = await cookies();
@@ -25,25 +37,21 @@ export async function GET(): Promise<Response> {
   const addressToName: Record<string, string> = {};
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
 
-  const client = new SuiJsonRpcClient({ url: RPC_URL, network: NETWORK });
-
   const [balancesResult, coinsResult, activityResult] = await Promise.allSettled([
     getBalances(vault.vaultId),
-    client.getCoins({ owner: vault.payoutAddress, coinType: COIN_TYPE, limit: 50 }),
+    getCoinsRaw(vault.payoutAddress, COIN_TYPE),
     getAgentActivity(10, vault.vaultId, addressToName),
   ]);
 
   if (balancesResult.status === 'rejected') {
-    console.error('[state] getBalances failed:', balancesResult.reason, { vaultId: vault.vaultId, payoutAddress: vault.payoutAddress, COIN_TYPE });
+    console.error('[state] getBalances failed:', balancesResult.reason, { vaultId: vault.vaultId });
   }
   if (coinsResult.status === 'rejected') {
     console.error('[state] getCoins failed:', coinsResult.reason, { payoutAddress: vault.payoutAddress, COIN_TYPE });
   }
 
   const balances = balancesResult.status === 'fulfilled' ? balancesResult.value : null;
-  const walletCoins: WalletCoin[] = coinsResult.status === 'fulfilled'
-    ? coinsResult.value.data.map((c) => ({ coinObjectId: c.coinObjectId, balance: c.balance }))
-    : [];
+  const walletCoins: WalletCoin[] = coinsResult.status === 'fulfilled' ? coinsResult.value : [];
   const activity = activityResult.status === 'fulfilled' ? activityResult.value : [];
 
   const earnings = balances
