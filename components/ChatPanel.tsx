@@ -55,7 +55,10 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
             message={msg}
             dismissed={dismissed}
             confirmed={confirmed}
-            onDismiss={(id) => setDismissed((prev) => new Set([...prev, id]))}
+            onDismiss={(id) => {
+              setDismissed((prev) => new Set([...prev, id]));
+              setConfirmed((prev) => new Set([...prev, id]));
+            }}
             onConfirm={(id) => setConfirmed((prev) => new Set([...prev, id]))}
             onSuccess={handleSuccess}
             vaultCtx={vaultCtx}
