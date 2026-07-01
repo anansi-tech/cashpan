@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import type { BrainProposal } from '@/lib/brain';
-import { buildDepositTx, buildSweepFromBrain, type VaultTxContext } from '@/lib/vault-tx';
+import { buildDepositTx, buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction } from '@/lib/execute-zklogin';
 import { useVaultData } from './VaultDataProvider';
 
@@ -15,7 +15,9 @@ function fmt(s: string): string {
 }
 
 function proposalKey(p: BrainProposal): string {
-  return p.type === 'add-to-cashpan' ? `add-${p.totalAmountSui}` : `sweep-${p.amountSui}`;
+  if (p.type === 'add-to-cashpan') return `add-${p.totalAmountSui}`;
+  if (p.type === 'topup-from-save') return `topup-${p.amountSui}`;
+  return `sweep-${p.amountSui}`;
 }
 
 export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
@@ -70,7 +72,9 @@ function BrainCard({
       const tx =
         proposal.type === 'add-to-cashpan'
           ? buildDepositTx(proposal.coinIds, vaultCtx)
-          : buildSweepFromBrain(proposal, vaultCtx);
+          : proposal.type === 'topup-from-save'
+            ? buildTopupFromBrain(proposal, vaultCtx)
+            : buildSweepFromBrain(proposal, vaultCtx);
       await executeTransaction(tx);
       setState('success');
       setTimeout(onSuccess, 1200);
@@ -97,14 +101,26 @@ function BrainCard({
     );
   }
 
-  const isAdd = proposal.type === 'add-to-cashpan';
-  const heading = isAdd
-    ? `$${fmt(proposal.totalAmountSui)} ${COIN_SYM} in your wallet`
-    : `Spend has $${fmt(proposal.spendBalance)} ${COIN_SYM} — more than you need`;
-  const subtext = isAdd
-    ? 'Add it to your CashPan?'
-    : `Put $${fmt(proposal.amountSui)} ${COIN_SYM} in Save?`;
-  const confirmLabel = isAdd ? 'Add to CashPan' : 'Move to Save';
+  let heading: string;
+  let subtext: string;
+  let confirmLabel: string;
+
+  switch (proposal.type) {
+    case 'add-to-cashpan':
+      heading = `$${fmt(proposal.totalAmountSui)} ${COIN_SYM} in your wallet`;
+      subtext = 'Add it to your CashPan?';
+      confirmLabel = 'Add to CashPan';
+      break;
+    case 'topup-from-save':
+      heading = `Spend is low ($${fmt(proposal.spendBalance)} ${COIN_SYM})`;
+      subtext = `Move $${fmt(proposal.amountSui)} ${COIN_SYM} from Save?`;
+      confirmLabel = 'Move to Spend';
+      break;
+    default:
+      heading = `Spend has $${fmt(proposal.spendBalance)} ${COIN_SYM} — more than you need`;
+      subtext = `Put $${fmt(proposal.amountSui)} ${COIN_SYM} in Save?`;
+      confirmLabel = 'Move to Save';
+  }
 
   return (
     <div style={cardStyle}>

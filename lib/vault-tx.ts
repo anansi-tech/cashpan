@@ -9,7 +9,7 @@
 
 import { Transaction } from '@mysten/sui/transactions';
 import type { Proposal, SendProposal, WithdrawToMeProposal, SweepProposal, TopupProposal } from './propose';
-import type { SweepToSaveProposal } from './brain';
+import type { SweepToSaveProposal, TopupFromSaveProposal } from './brain';
 import { humanToBase } from './coin-config';
 
 // Direction constants mirror the Move constants (SWEEP=0, TOPUP=1)
@@ -102,6 +102,22 @@ export function buildDepositTx(coinIds: string[], ctx: VaultTxContext): Transact
     target: `${ctx.packageId}::vault::deposit`,
     typeArguments: [ctx.coinType],
     arguments: [tx.object(ctx.vaultId), primary],
+  });
+  return tx;
+}
+
+export function buildTopupFromBrain(proposal: TopupFromSaveProposal, ctx: VaultTxContext): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::owner_rebalance`,
+    typeArguments: [ctx.coinType],
+    arguments: [
+      tx.object(ctx.ownerCapId),
+      tx.object(ctx.vaultId),
+      tx.object(ctx.venueId),
+      tx.pure.u8(TOPUP),
+      tx.pure.u64(humanToBase(proposal.amountSui)),
+    ],
   });
   return tx;
 }
