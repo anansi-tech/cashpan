@@ -150,10 +150,11 @@ async function main() {
     throw new Error(`Publish failed: ${JSON.stringify(publishResult.effects?.status)}`);
   }
 
-  const packageId = publishResult.effects.created
-    .find((obj: { owner: unknown }) => obj.owner === "Immutable")
-    ?.reference?.objectId;
-  if (!packageId) throw new Error("Could not find package ID in publish output");
+  const published = publishResult.objectChanges?.find(
+    (c: { type: string }) => c.type === "published",
+  );
+  if (!published) throw new Error("Could not find published package in objectChanges");
+  const packageId = (published as { packageId: string }).packageId;
   console.log(`   Package ID: ${packageId}`);
 
   const publishDigest = publishResult.digest ?? publishResult.effects?.transactionDigest;
