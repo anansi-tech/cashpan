@@ -27,29 +27,37 @@ export async function GET(): Promise<Response> {
 
   const client = new SuiJsonRpcClient({ url: RPC_URL, network: NETWORK });
 
-  const [balances, coinsResult, activity] = await Promise.all([
+  const [balancesResult, coinsResult, activityResult] = await Promise.allSettled([
     getBalances(vault.vaultId),
     client.getCoins({ owner: vault.payoutAddress, coinType: COIN_TYPE, limit: 50 }),
     getAgentActivity(10, vault.vaultId, addressToName),
   ]);
 
-  const earnings = {
-    accrued: (BigInt(balances.savingsValue) - BigInt(balances.savingsPrincipal)).toString(),
-    aprBps: balances.rateBps,
-  };
+  if (balancesResult.status === 'rejected') {
+    console.error('[state] getBalances failed:', balancesResult.reason, { vaultId: vault.vaultId, payoutAddress: vault.payoutAddress, COIN_TYPE });
+  }
+  if (coinsResult.status === 'rejected') {
+    console.error('[state] getCoins failed:', coinsResult.reason, { payoutAddress: vault.payoutAddress, COIN_TYPE });
+  }
 
-  const walletCoins: WalletCoin[] = coinsResult.data.map((c) => ({
-    coinObjectId: c.coinObjectId,
-    balance: c.balance,
-  }));
+  const balances = balancesResult.status === 'fulfilled' ? balancesResult.value : null;
+  const walletCoins: WalletCoin[] = coinsResult.status === 'fulfilled'
+    ? coinsResult.value.data.map((c) => ({ coinObjectId: c.coinObjectId, balance: c.balance }))
+    : [];
+  const activity = activityResult.status === 'fulfilled' ? activityResult.value : [];
+
+  const earnings = balances
+    ? { accrued: (BigInt(balances.savingsValue) - BigInt(balances.savingsPrincipal)).toString(), aprBps: balances.rateBps }
+    : { accrued: '0', aprBps: '0' };
 
   return NextResponse.json({
     balances,
     earnings,
     activity,
     walletCoins,
-    proposals: computeProposals(walletCoins, balances, settings),
+    proposals: balances ? computeProposals(walletCoins, balances, settings) : [],
     contacts,
     settings,
+    debug: { payoutAddress: vault.payoutAddress, coinType: COIN_TYPE, rpcUrl: RPC_URL },
   });
 }
