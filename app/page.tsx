@@ -46,7 +46,7 @@ export default async function Page() {
   const [balances, earnings, activity] = await Promise.all([
     getBalances(vaultId),
     getEarnings(vaultId),
-    getAgentActivity(20, vaultId),
+    getAgentActivity(10, vaultId),
   ]);
 
   return (

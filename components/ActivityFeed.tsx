@@ -140,7 +140,7 @@ export function ActivityFeed() {
             </div>
           ))}
 
-          {!expanded && events.length >= 20 && (
+          {!expanded && events.length >= 10 && (
             <button
               onClick={handleShowMore}
               disabled={loadingMore}

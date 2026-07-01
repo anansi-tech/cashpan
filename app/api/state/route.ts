@@ -29,7 +29,7 @@ export async function GET(): Promise<Response> {
   const [balances, coinsResult, activity] = await Promise.all([
     getBalances(vault.vaultId),
     client.getCoins({ owner: vault.payoutAddress, coinType: COIN_TYPE, limit: 50 }),
-    getAgentActivity(20, vault.vaultId, addressToName),
+    getAgentActivity(10, vault.vaultId, addressToName),
   ]);
 
   const earnings = {
