@@ -7,15 +7,15 @@
  * INVARIANT: reads only — no keys, no signing, no Transaction objects here.
  */
 
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { humanToBase, baseToHuman } from './coin-config';
 import { getBalances } from './read-layer';
 import type { Balances } from './read-layer';
 
-const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet') as 'testnet';
+const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 
 function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(NETWORK), network: NETWORK });
+  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
