@@ -9,6 +9,7 @@
     "start": "next start",
     "agent": "tsx src/agent.ts",
     "setup": "tsx scripts/setup.ts",
+    "resolve-suilend": "node scripts/resolve-suilend.mjs",
     "fund-vault": "tsx scripts/fund-vault.ts",
     "drain": "tsx scripts/drain.ts",
     "deposit": "tsx scripts/deposit.ts",

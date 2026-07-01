@@ -115,38 +115,7 @@ async function waitForTx(client: SuiJsonRpcClient, digest: string): Promise<void
   throw new Error(`Transaction ${digest} not confirmed after 30s`);
 }
 
-/**
- * Fetch the Suilend main-pool LendingMarket and find the reserve whose
- * coinType matches `targetCoinType`. Returns the reserve_array_index.
- * Strips leading '0x' before comparing since on-chain coinType names omit it.
- */
-async function findReserveIndex(
-  client: SuiJsonRpcClient,
-  lendingMarketId: string,
-  targetCoinType: string,
-): Promise<number> {
-  const obj = await client.getObject({ id: lendingMarketId, options: { showContent: true } });
-  const fields = obj.data?.content?.fields as Record<string, unknown> | undefined;
-  const reserves = fields?.reserves as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(reserves)) throw new Error("LendingMarket reserves not found in object");
-
-  // On-chain coinType names omit the leading 0x
-  const stripped = targetCoinType.replace(/^0x/, "");
-
-  for (let i = 0; i < reserves.length; i++) {
-    const r = reserves[i] as Record<string, unknown>;
-    const coinTypeName = (
-      (r?.fields as Record<string, unknown>)?.coin_type as
-        | { fields?: { name?: string } }
-        | undefined
-    )?.fields?.name ?? "";
-    if (coinTypeName === stripped) return i;
-  }
-
-  throw new Error(
-    `No reserve found for coinType ${targetCoinType} in LendingMarket ${lendingMarketId}`,
-  );
-}
+// reserve_array_index is resolved live by scripts/resolve-suilend.mjs
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -161,9 +130,12 @@ async function main() {
   console.log(`P_TYPE:         ${SUILEND_P_TYPE}`);
   console.log(`COIN_TYPE:      ${NATIVE_USDC_TYPE}\n`);
 
-  // ── 1. Resolve native-USDC reserve index ───────────────────────────────────
+  // ── 1. Resolve native-USDC reserve index (live — never read from stale env) ─
   console.log("1. Resolving native-USDC reserve_array_index from Suilend main pool...");
-  const reserveArrayIndex = await findReserveIndex(client, SUILEND_LENDING_MARKET_ID, NATIVE_USDC_TYPE);
+  const { resolveReserveIndex } = await import("./resolve-suilend.mjs") as {
+    resolveReserveIndex: (rpcUrl: string) => Promise<{ arrayIndex: number; mintDecimals: number }>;
+  };
+  const { arrayIndex: reserveArrayIndex } = await resolveReserveIndex(RPC_URL);
   console.log(`   reserve_array_index = ${reserveArrayIndex}`);
 
   // ── 2. Publish Move package ─────────────────────────────────────────────────
