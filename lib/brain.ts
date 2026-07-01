@@ -38,7 +38,14 @@ export interface SweepToSaveProposal {
   savingsBalance: string;
 }
 
-export type BrainProposal = AddToCashPanProposal | SweepToSaveProposal;
+export interface TopupFromSaveProposal {
+  type: 'topup-from-save';
+  amountSui: string;
+  spendBalance: string;
+  savingsBalance: string;
+}
+
+export type BrainProposal = AddToCashPanProposal | SweepToSaveProposal | TopupFromSaveProposal;
 
 // ─── Pure core ────────────────────────────────────────────────────────────────
 
@@ -61,18 +68,28 @@ export function computeProposals(
     }
   }
 
-  // 2. Sweep-to-Save: Spend > buffer + band (mirrors decide() without perTxCap,
-  //    since owner_rebalance is uncapped for the owner)
+  // 2+3. Rebalance proposals — mirrors decide() without perTxCap (owner is uncapped)
   const buffer = humanToBase(settings.buffer);
   const band = humanToBase(settings.band);
-  if (buffer + band > 0n) {
-    const liquid = BigInt(balances.liquid);
+  const liquid = BigInt(balances.liquid);
+  const savingsValue = BigInt(balances.savingsValue);
+
+  if (buffer > 0n) {
     if (liquid > buffer + band) {
       proposals.push({
         type: 'sweep-to-save',
         amountSui: baseToHuman(liquid - buffer),
         spendBalance: baseToHuman(liquid),
-        savingsBalance: baseToHuman(BigInt(balances.savingsValue)),
+        savingsBalance: baseToHuman(savingsValue),
+      });
+    } else if (liquid < buffer && savingsValue > 0n) {
+      const deficit = buffer - liquid;
+      const amount = deficit < savingsValue ? deficit : savingsValue;
+      proposals.push({
+        type: 'topup-from-save',
+        amountSui: baseToHuman(amount),
+        spendBalance: baseToHuman(liquid),
+        savingsBalance: baseToHuman(savingsValue),
       });
     }
   }
