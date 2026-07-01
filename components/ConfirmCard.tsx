@@ -167,6 +167,8 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
       setExecState('success');
       onSuccess(result.digest ?? '');
       refresh();
+      // Events take ~2s to be indexed on Sui; second refresh picks them up
+      setTimeout(refresh, 2500);
     } catch (err) {
       setErrorMsg(friendlyError(err instanceof Error ? err.message : ''));
       setExecState('error');
