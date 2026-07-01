@@ -5,32 +5,24 @@
  * All functions take explicit vaultId — no VAULT_ID env reads in the request path.
  * VENUE_ID and PACKAGE_ID are shared across all vaults (single deployment).
  *
- * Mirrors computeCurrentValue from src/sense.ts — the two must stay in sync.
+ * Savings value is derived from vault::savings_balance via devInspect — Suilend
+ * cToken ratio math runs on-chain, no local accrual formula needed.
  */
 
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { Transaction } from '@mysten/sui/transactions';
+import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
 
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
+const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 const VENUE_ID = process.env.VENUE_ID ?? '';
-
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
+const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
+const P_TYPE = process.env.P_TYPE ?? '';
+const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: RPC_URL, network: 'testnet' });
-}
-
-// Mirrors src/sense.ts computeCurrentValue exactly.
-function computeCurrentValue(
-  principal: bigint,
-  entryEpoch: bigint,
-  rateBps: bigint,
-  periodEpochs: bigint,
-  currentEpoch: bigint,
-): bigint {
-  const elapsed = currentEpoch > entryEpoch ? currentEpoch - entryEpoch : 0n;
-  if (elapsed === 0n || principal === 0n || periodEpochs === 0n) return principal;
-  return principal + (principal * rateBps * elapsed) / (10_000n * periodEpochs);
+  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
 }
 
 // Balance<T> appears as {value: "123"} in some SDK versions, plain string in others.
@@ -39,6 +31,31 @@ function readBalance(field: unknown): bigint {
     return BigInt((field as { value: string }).value);
   }
   return BigInt(String(field));
+}
+
+async function fetchSavingsValue(client: SuiJsonRpcClient, vaultId: string): Promise<bigint> {
+  if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !P_TYPE || !COIN_TYPE) return 0n;
+  try {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${PACKAGE_ID}::vault::savings_balance`,
+      typeArguments: [P_TYPE, COIN_TYPE],
+      arguments: [
+        tx.object(vaultId),
+        tx.object(VENUE_ID),
+        tx.object(LENDING_MARKET_ID),
+      ],
+    });
+    const result = await client.devInspectTransactionBlock({
+      transactionBlock: tx,
+      sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
+    });
+    const bytes = result.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined;
+    if (bytes) return BigInt(bcs.u64().parse(new Uint8Array(bytes)));
+  } catch {
+    // devInspect failed — no active savings position or env not configured
+  }
+  return 0n;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -89,61 +106,35 @@ export interface Config {
 export async function getBalances(vaultId: string): Promise<Balances> {
   const client = makeClient();
 
-  const [vaultObj, venueObj, systemState] = await Promise.all([
+  const [vaultObj, systemState] = await Promise.all([
     client.getObject({ id: vaultId, options: { showContent: true } }),
-    client.getObject({ id: VENUE_ID, options: { showContent: true } }),
     client.getLatestSuiSystemState(),
   ]);
 
   if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-  if (venueObj.data?.content?.dataType !== 'moveObject') throw new Error('Venue not found');
 
   const vf = vaultObj.data.content.fields as Record<string, unknown>;
-  const venf = venueObj.data.content.fields as Record<string, string>;
   const currentEpoch = BigInt(systemState.epoch);
-  const rateBps = BigInt(venf.rate_bps);
-  const periodEpochs = BigInt(venf.period_epochs);
   const liquid = readBalance(vf.liquid);
 
-  // Option<Position> is null | {fields: ...} | {vec: [{fields: ...}]}
-  const rawPos = vf.savings_position as
-    | null
-    | { fields: { principal: string; entry_epoch: string } }
-    | { vec: Array<{ fields: { principal: string; entry_epoch: string } }> };
-
-  let savingsPrincipal = 0n;
-  let savingsValue = 0n;
-  let entryEpoch = 0n;
-
-  if (rawPos !== null) {
-    const posFields =
-      rawPos && 'vec' in rawPos
-        ? (rawPos as { vec: Array<{ fields: { principal: string; entry_epoch: string } }> }).vec[0]?.fields
-        : (rawPos as { fields: { principal: string; entry_epoch: string } }).fields;
-
-    if (posFields) {
-      savingsPrincipal = BigInt(posFields.principal);
-      entryEpoch = BigInt(posFields.entry_epoch);
-      savingsValue = computeCurrentValue(savingsPrincipal, entryEpoch, rateBps, periodEpochs, currentEpoch);
-    }
-  }
+  const savingsValue = await fetchSavingsValue(client, vaultId);
 
   return {
     liquid: liquid.toString(),
-    savingsPrincipal: savingsPrincipal.toString(),
+    savingsPrincipal: savingsValue.toString(),
     savingsValue: savingsValue.toString(),
     total: (liquid + savingsValue).toString(),
-    entryEpoch: entryEpoch.toString(),
+    entryEpoch: '0',
     currentEpoch: currentEpoch.toString(),
-    rateBps: rateBps.toString(),
-    periodEpochs: periodEpochs.toString(),
+    rateBps: '0',
+    periodEpochs: '1',
   };
 }
 
 export async function getEarnings(vaultId: string): Promise<Earnings> {
   const balances = await getBalances(vaultId);
-  const accrued = (BigInt(balances.savingsValue) - BigInt(balances.savingsPrincipal)).toString();
-  return { accrued, aprBps: balances.rateBps };
+  // accrued interest not directly trackable in cToken model without storing entry ratio
+  return { accrued: '0', aprBps: '0' };
 }
 
 export async function getAgentActivity(

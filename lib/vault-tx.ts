@@ -19,9 +19,11 @@ const TOPUP = 1;
 export interface VaultTxContext {
   packageId: string;
   coinType: string;
+  pType: string;
   vaultId: string;
   ownerCapId: string;
   venueId: string;
+  lendingMarketId: string;
   userAddress: string;
 }
 
@@ -61,11 +63,13 @@ export function buildSweepTx(proposal: SweepProposal, ctx: VaultTxContext): Tran
   const tx = new Transaction();
   tx.moveCall({
     target: `${ctx.packageId}::vault::owner_rebalance`,
-    typeArguments: [ctx.coinType],
+    typeArguments: [ctx.pType, ctx.coinType],
     arguments: [
       tx.object(ctx.ownerCapId),
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
+      tx.object(ctx.lendingMarketId),
+      tx.object('0x0000000000000000000000000000000000000000000000000000000000000006'),
       tx.pure.u8(SWEEP),
       tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
@@ -77,11 +81,13 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
   const tx = new Transaction();
   tx.moveCall({
     target: `${ctx.packageId}::vault::owner_rebalance`,
-    typeArguments: [ctx.coinType],
+    typeArguments: [ctx.pType, ctx.coinType],
     arguments: [
       tx.object(ctx.ownerCapId),
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
+      tx.object(ctx.lendingMarketId),
+      tx.object('0x0000000000000000000000000000000000000000000000000000000000000006'),
       tx.pure.u8(TOPUP),
       tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
@@ -110,11 +116,13 @@ export function buildTopupFromBrain(proposal: TopupFromSaveProposal, ctx: VaultT
   const tx = new Transaction();
   tx.moveCall({
     target: `${ctx.packageId}::vault::owner_rebalance`,
-    typeArguments: [ctx.coinType],
+    typeArguments: [ctx.pType, ctx.coinType],
     arguments: [
       tx.object(ctx.ownerCapId),
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
+      tx.object(ctx.lendingMarketId),
+      tx.object('0x0000000000000000000000000000000000000000000000000000000000000006'),
       tx.pure.u8(TOPUP),
       tx.pure.u64(humanToBase(proposal.amountSui)),
     ],
@@ -126,11 +134,13 @@ export function buildSweepFromBrain(proposal: SweepToSaveProposal, ctx: VaultTxC
   const tx = new Transaction();
   tx.moveCall({
     target: `${ctx.packageId}::vault::owner_rebalance`,
-    typeArguments: [ctx.coinType],
+    typeArguments: [ctx.pType, ctx.coinType],
     arguments: [
       tx.object(ctx.ownerCapId),
       tx.object(ctx.vaultId),
       tx.object(ctx.venueId),
+      tx.object(ctx.lendingMarketId),
+      tx.object('0x0000000000000000000000000000000000000000000000000000000000000006'),
       tx.pure.u8(SWEEP),
       tx.pure.u64(humanToBase(proposal.amountSui)),
     ],

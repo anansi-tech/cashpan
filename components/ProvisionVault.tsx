@@ -8,6 +8,7 @@ import { getSalt, getSession } from '@/lib/auth';
 
 interface ProvisionVaultProps {
   packageId: string;
+  pType: string;
   venueId: string;
   coinType: string;
 }
@@ -20,7 +21,7 @@ const DAILY_CAP         = BigInt(200 * FACTOR);
 const OUTFLOW_PER_TX    = BigInt(20  * FACTOR);
 const OUTFLOW_DAILY_CAP = BigInt(100 * FACTOR);
 
-export function ProvisionVault({ packageId, venueId, coinType }: ProvisionVaultProps) {
+export function ProvisionVault({ packageId, pType, venueId, coinType }: ProvisionVaultProps) {
   const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'provisioning' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,7 @@ export function ProvisionVault({ packageId, venueId, coinType }: ProvisionVaultP
       // create_vault returns OwnerCap to the caller; we transfer it to the user's address
       const [ownerCap] = tx.moveCall({
         target: `${packageId}::vault::create_vault`,
-        typeArguments: [coinType],
+        typeArguments: [pType, coinType],
         arguments: [
           tx.object(venueId),
           tx.pure.address(userAddress),

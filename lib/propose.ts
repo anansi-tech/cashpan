@@ -10,13 +10,19 @@
  */
 
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { Transaction } from '@mysten/sui/transactions';
+import { bcs } from '@mysten/sui/bcs';
 import { humanToBase, baseToHuman } from './coin-config';
 
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.testnet.sui.io:443';
+const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 const VENUE_ID = process.env.VENUE_ID ?? '';
+const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
+const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
+const P_TYPE = process.env.P_TYPE ?? '';
+const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: RPC_URL, network: 'testnet' });
+  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
 }
 
 function readBalance(field: unknown): bigint {
@@ -86,41 +92,35 @@ interface VaultState {
 
 async function fetchVaultState(vaultId: string): Promise<VaultState> {
   const client = makeClient();
-  const [vaultObj, venueObj, systemState] = await Promise.all([
-    client.getObject({ id: vaultId, options: { showContent: true } }),
-    client.getObject({ id: VENUE_ID, options: { showContent: true } }),
-    client.getLatestSuiSystemState(),
-  ]);
+  const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
 
   if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-  if (venueObj.data?.content?.dataType !== 'moveObject') throw new Error('Venue not found');
 
   const vf = vaultObj.data.content.fields as Record<string, unknown>;
-  const venf = venueObj.data.content.fields as Record<string, string>;
-  const currentEpoch = BigInt(systemState.epoch);
-
   const liquid = readBalance(vf.liquid);
   const payoutAddress = String(vf.payout_address ?? '');
 
-  // Savings value mirrors computeCurrentValue in read-layer.ts
-  const rateBps = BigInt(venf.rate_bps ?? '0');
-  const periodEpochs = BigInt(venf.period_epochs ?? '1');
-  const rawPos = vf.savings_position as
-    | null
-    | { fields: { principal: string; entry_epoch: string } }
-    | { vec: Array<{ fields: { principal: string; entry_epoch: string } }> };
-
   let savingsValue = 0n;
-  if (rawPos !== null) {
-    const posFields =
-      rawPos && 'vec' in rawPos
-        ? (rawPos as { vec: Array<{ fields: { principal: string; entry_epoch: string } }> }).vec[0]?.fields
-        : (rawPos as { fields: { principal: string; entry_epoch: string } }).fields;
-    if (posFields) {
-      const principal = BigInt(posFields.principal);
-      const entryEpoch = BigInt(posFields.entry_epoch);
-      const elapsed = currentEpoch > entryEpoch ? currentEpoch - entryEpoch : 0n;
-      savingsValue = principal + (principal * rateBps * elapsed) / (10_000n * periodEpochs);
+  if (PACKAGE_ID && VENUE_ID && LENDING_MARKET_ID && P_TYPE && COIN_TYPE) {
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID}::vault::savings_balance`,
+        typeArguments: [P_TYPE, COIN_TYPE],
+        arguments: [
+          tx.object(vaultId),
+          tx.object(VENUE_ID),
+          tx.object(LENDING_MARKET_ID),
+        ],
+      });
+      const result = await client.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      });
+      const bytes = result.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined;
+      if (bytes) savingsValue = BigInt(bcs.u64().parse(new Uint8Array(bytes)));
+    } catch {
+      // devInspect failed — no active savings position or env not configured
     }
   }
 
