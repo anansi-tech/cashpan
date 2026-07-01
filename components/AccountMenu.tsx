@@ -2,6 +2,87 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthProvider';
+import { useVaultData } from './VaultDataProvider';
+
+function SettingsSection() {
+  const { settings, refresh } = useVaultData();
+  const [buffer, setBuffer] = useState(settings.buffer);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => { setBuffer(settings.buffer); }, [settings.buffer]);
+
+  const isDirty = buffer !== settings.buffer;
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buffer }),
+      });
+      setSaved(true);
+      refresh();
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }}>
+      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>
+        Settings
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+          Keep at least
+        </span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          value={buffer}
+          onChange={(e) => setBuffer(e.target.value)}
+          style={{
+            width: '4rem',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(148,163,184,0.18)',
+            borderRadius: '0.4rem',
+            padding: '0.25rem 0.4rem',
+            color: 'var(--color-text)',
+            fontSize: '0.8rem',
+            outline: 'none',
+            fontFamily: 'var(--font-mono)',
+            textAlign: 'right',
+          }}
+        />
+        <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+          in Spend
+        </span>
+        <button
+          onClick={handleSave}
+          disabled={!isDirty || saving}
+          style={{
+            background: saved ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${saved ? 'rgba(16,185,129,0.3)' : 'rgba(148,163,184,0.18)'}`,
+            color: saved ? 'var(--color-savings)' : 'var(--color-muted)',
+            borderRadius: '0.4rem',
+            padding: '0.25rem 0.55rem',
+            fontSize: '0.75rem',
+            cursor: !isDirty || saving ? 'not-allowed' : 'pointer',
+            transition: 'all 0.15s',
+            opacity: !isDirty || saving ? 0.5 : 1,
+          }}
+        >
+          {saved ? '✓ Saved' : saving ? '…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function CopyRow({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -93,6 +174,9 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
             </div>
             <CopyRow value={address} />
           </div>
+
+          {/* Settings */}
+          <SettingsSection />
 
           {/* Developer details — collapsed */}
           <div style={{ borderBottom: '1px solid var(--color-border)' }}>

@@ -10,7 +10,6 @@ import { ProvisionVault } from '@/components/ProvisionVault';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ProposalBanner } from '@/components/ProposalBanner';
 import { VaultDataProvider } from '@/components/VaultDataProvider';
-import { SettingsPanel } from '@/components/SettingsPanel';
 import { AccountMenu } from '@/components/AccountMenu';
 
 export const dynamic = 'force-dynamic';
@@ -127,7 +126,6 @@ export default async function Page() {
             <ProposalBanner vaultCtx={vaultCtx} />
             <LiveDashboard />
             <ActivityFeed />
-            <SettingsPanel />
           </main>
 
           {/* Right: Money Talks + Contacts */}
