@@ -95,7 +95,9 @@ export function LiveDashboard() {
   const accrued = Math.max(0, savingsValue - principal);
   const accruedLabel = accrued > 0 ? `+$${fmt(accrued, 4)} earned` : undefined;
 
-  const aprPct = earnings ? (Number(earnings.aprBps) / 100).toFixed(1).replace(/\.0$/, '') : '–';
+  const annualAprPct = earnings
+    ? ((Number(earnings.aprBps) * 365) / (100 * authRef.current.periodEpochs)).toFixed(0)
+    : '–';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
@@ -130,9 +132,7 @@ export function LiveDashboard() {
         <Divider />
         <Stat label="Earned" value={`$${fmt(accrued, 4)} ${COIN_SYM}`} color="var(--color-savings)" />
         <Divider />
-        <Stat label="Yield" value={`${aprPct}% / epoch`} />
-        <Divider />
-        <Stat label="Epoch" value={`#${displayed.currentEpoch}`} />
+        <Stat label="Yield" value={`~${annualAprPct}% / yr`} />
       </div>
 
       {total === 0 ? (
