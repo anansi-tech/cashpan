@@ -9,21 +9,17 @@
  * cToken ratio math runs on-chain, no local accrual formula needed.
  */
 
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
+import { suiClient } from './sui';
 
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
 const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-
-function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
-}
+const RESERVE_INDEX = Number(process.env.RESERVE_INDEX ?? '7');
 
 // Balance<T> appears as {value: "123"} in some SDK versions, plain string in others.
 function readBalance(field: unknown): bigint {
@@ -33,7 +29,7 @@ function readBalance(field: unknown): bigint {
   return BigInt(String(field));
 }
 
-async function fetchSavingsValue(client: SuiJsonRpcClient, vaultId: string): Promise<bigint> {
+async function fetchSavingsValue(client: ReturnType<typeof suiClient>, vaultId: string): Promise<bigint> {
   if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !P_TYPE || !COIN_TYPE) return 0n;
   try {
     const tx = new Transaction();
@@ -58,17 +54,57 @@ async function fetchSavingsValue(client: SuiJsonRpcClient, vaultId: string): Pro
   return 0n;
 }
 
+// ─── Suilend live APR ─────────────────────────────────────────────────────────
+
+function interpolateApr(utils: number[], aprs: number[], utilizationPct: number): number {
+  if (utilizationPct <= utils[0]) return aprs[0];
+  if (utilizationPct >= utils[utils.length - 1]) return aprs[aprs.length - 1];
+  for (let i = 1; i < utils.length; i++) {
+    if (utilizationPct <= utils[i]) {
+      const slope = (aprs[i] - aprs[i - 1]) / (utils[i] - utils[i - 1]);
+      return aprs[i - 1] + slope * (utilizationPct - utils[i - 1]);
+    }
+  }
+  return aprs[aprs.length - 1];
+}
+
+export async function getLiveAprBps(): Promise<number> {
+  if (!LENDING_MARKET_ID) return 0;
+  try {
+    const client = suiClient();
+    const obj = await client.getObject({ id: LENDING_MARKET_ID, options: { showContent: true } });
+    if (obj.data?.content?.dataType !== 'moveObject') return 0;
+    const topFields = obj.data.content.fields as Record<string, unknown>;
+    const reserves = topFields.reserves as unknown[] | undefined;
+    if (!Array.isArray(reserves) || reserves.length <= RESERVE_INDEX) return 0;
+
+    const r = (reserves[RESERVE_INDEX] as Record<string, unknown>).fields as Record<string, unknown>;
+    const ctokenSupply = BigInt(String(r.ctoken_supply ?? 0));
+    const available = BigInt(String(r.available_amount ?? 0));
+    const configEl = ((r.config as Record<string, unknown>)?.fields as Record<string, unknown>)?.element;
+    const cfg = ((configEl as Record<string, unknown>)?.fields ?? {}) as Record<string, unknown>;
+    const spreadFeeBps = Number(cfg.spread_fee_bps ?? 2000);
+    const utils = cfg.interest_rate_utils as number[] ?? [0, 93, 97, 100];
+    const aprs = (cfg.interest_rate_aprs as string[] ?? ['400', '700', '1500', '15000']).map(Number);
+
+    // utilization: ctoken_supply ≈ total deposits; available = unlent portion
+    const borrowed = ctokenSupply > available ? ctokenSupply - available : 0n;
+    const utilizationPct = ctokenSupply > 0n ? Number((borrowed * 100n) / ctokenSupply) : 0;
+    const borrowAprBps = interpolateApr(utils, aprs, utilizationPct);
+    const supplyAprBps = Math.floor(borrowAprBps * (utilizationPct / 100) * (1 - spreadFeeBps / 10000));
+    return supplyAprBps;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Balances {
   liquid: string;
-  savingsPrincipal: string;
   savingsValue: string;
   total: string;
-  entryEpoch: string;
   currentEpoch: string;
-  rateBps: string;
-  periodEpochs: string;
 }
 
 export interface Earnings {
@@ -104,7 +140,7 @@ export interface Config {
 // ─── Read functions ────────────────────────────────────────────────────────────
 
 export async function getBalances(vaultId: string): Promise<Balances> {
-  const client = makeClient();
+  const client = suiClient();
 
   const [vaultObj, systemState] = await Promise.all([
     client.getObject({ id: vaultId, options: { showContent: true } }),
@@ -121,20 +157,18 @@ export async function getBalances(vaultId: string): Promise<Balances> {
 
   return {
     liquid: liquid.toString(),
-    savingsPrincipal: savingsValue.toString(),
     savingsValue: savingsValue.toString(),
     total: (liquid + savingsValue).toString(),
-    entryEpoch: '0',
     currentEpoch: currentEpoch.toString(),
-    rateBps: '0',
-    periodEpochs: '1',
   };
 }
 
-export async function getEarnings(vaultId: string): Promise<Earnings> {
-  const balances = await getBalances(vaultId);
-  // accrued interest not directly trackable in cToken model without storing entry ratio
-  return { accrued: '0', aprBps: '0' };
+export async function getEarnings(vaultId: string, savingsPrincipalStr = '0'): Promise<Earnings> {
+  const [balances, aprBps] = await Promise.all([getBalances(vaultId), getLiveAprBps()]);
+  const savingsValue = BigInt(balances.savingsValue);
+  const principal = BigInt(savingsPrincipalStr);
+  const accrued = savingsValue > principal ? (savingsValue - principal).toString() : '0';
+  return { accrued, aprBps: String(aprBps) };
 }
 
 export async function getAgentActivity(
@@ -143,7 +177,7 @@ export async function getAgentActivity(
   addressToName: Record<string, string> = {},
 ): Promise<ActivityEvent[]> {
   if (!PACKAGE_ID) return [];
-  const client = makeClient();
+  const client = suiClient();
 
   const perType = Math.ceil(limit / 4) * 2;
   const eventTypes = [
@@ -226,7 +260,7 @@ export async function getConfig(
   vaultId: string,
   userSettings?: { buffer?: string; band?: string },
 ): Promise<Config> {
-  const client = makeClient();
+  const client = suiClient();
   const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
 
   if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');

@@ -107,10 +107,10 @@ export async function POST(req: Request) {
           additionalProperties: false,
         }),
         execute: async () => {
-          const raw = await getEarnings(vaultId);
+          const raw = await getEarnings(vaultId, vault.savingsPrincipal ?? '0');
           return {
             [`accrued${COIN_SYMBOL}`]: baseToHuman(raw.accrued, 6),
-            rateBpsPerEpoch: raw.aprBps,
+            aprBps: raw.aprBps,
           };
         },
       }),

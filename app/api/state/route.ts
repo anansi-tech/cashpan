@@ -1,35 +1,22 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getActiveVault } from '@/lib/db/vault-registry';
-import { getBalances, getAgentActivity } from '@/lib/read-layer';
+import { getBalances, getAgentActivity, getLiveAprBps } from '@/lib/read-layer';
 import { computeProposals } from '@/lib/brain';
+import { getCoinsRaw, suiNetwork } from '@/lib/sui';
 import type { WalletCoin } from '@/lib/brain';
 
 export const dynamic = 'force-dynamic';
 
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
-
-async function getCoinsRaw(owner: string, coinType: string): Promise<WalletCoin[]> {
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0', id: 1,
-      method: 'suix_getCoins',
-      params: [owner, coinType, null, 50],
-    }),
-  });
-  const json = await res.json() as { result?: { data?: Array<{ coinObjectId: string; balance: string }> } };
-  return (json.result?.data ?? []).map((c) => ({ coinObjectId: c.coinObjectId, balance: c.balance }));
-}
 
 export async function GET(): Promise<Response> {
   const cookieStore = await cookies();
   const sub = cookieStore.get('cashpan-sub')?.value;
   if (!sub) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const vault = await getActiveVault(sub);
+  const network = suiNetwork();
+  const vault = await getActiveVault(sub, network);
   if (!vault) return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
 
   const settings = { buffer: vault.buffer ?? '50', band: vault.band ?? '5' };
@@ -37,10 +24,11 @@ export async function GET(): Promise<Response> {
   const addressToName: Record<string, string> = {};
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
 
-  const [balancesResult, coinsResult, activityResult] = await Promise.allSettled([
+  const [balancesResult, coinsResult, activityResult, aprResult] = await Promise.allSettled([
     getBalances(vault.vaultId),
     getCoinsRaw(vault.payoutAddress, COIN_TYPE),
     getAgentActivity(10, vault.vaultId, addressToName),
+    getLiveAprBps(),
   ]);
 
   if (balancesResult.status === 'rejected') {
@@ -53,10 +41,15 @@ export async function GET(): Promise<Response> {
   const balances = balancesResult.status === 'fulfilled' ? balancesResult.value : null;
   const walletCoins: WalletCoin[] = coinsResult.status === 'fulfilled' ? coinsResult.value : [];
   const activity = activityResult.status === 'fulfilled' ? activityResult.value : [];
+  const aprBps = aprResult.status === 'fulfilled' ? aprResult.value : 0;
 
-  const earnings = balances
-    ? { accrued: (BigInt(balances.savingsValue) - BigInt(balances.savingsPrincipal)).toString(), aprBps: balances.rateBps }
-    : { accrued: '0', aprBps: '0' };
+  const savingsPrincipal = vault.savingsPrincipal ?? '0';
+  const savingsValue = balances ? BigInt(balances.savingsValue) : 0n;
+  const principalBig = BigInt(savingsPrincipal);
+  const earnings = {
+    accrued: (savingsValue > principalBig ? savingsValue - principalBig : 0n).toString(),
+    aprBps: String(aprBps),
+  };
 
   return NextResponse.json({
     balances,
@@ -66,6 +59,5 @@ export async function GET(): Promise<Response> {
     proposals: balances ? computeProposals(walletCoins, balances, settings) : [],
     contacts,
     settings,
-    debug: { payoutAddress: vault.payoutAddress, coinType: COIN_TYPE, rpcUrl: RPC_URL },
   });
 }

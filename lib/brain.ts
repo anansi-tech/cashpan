@@ -9,19 +9,8 @@
 
 import { humanToBase, baseToHuman } from './coin-config';
 import { getBalances } from './read-layer';
+import { getCoinsRaw } from './sui';
 import type { Balances } from './read-layer';
-
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
-
-async function getCoinsRaw(owner: string, coinType: string): Promise<WalletCoin[]> {
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'suix_getCoins', params: [owner, coinType, null, 50] }),
-  });
-  const json = await res.json() as { result?: { data?: Array<{ coinObjectId: string; balance: string }> } };
-  return (json.result?.data ?? []).map((c) => ({ coinObjectId: c.coinObjectId, balance: c.balance }));
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

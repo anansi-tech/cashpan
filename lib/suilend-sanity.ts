@@ -9,7 +9,7 @@
  * Non-fatal — the app continues; the warning goes to server stderr.
  */
 
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { suiClient } from './sui';
 
 const LENDING_MARKET_ID = '0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1';
 const USDC_TYPE = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC';
@@ -43,8 +43,7 @@ export async function validateReserveIndex(): Promise<void> {
   if (!envIdx) return;
 
   try {
-    const rpcUrl = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
-    const client = new SuiJsonRpcClient({ url: rpcUrl, network: 'mainnet' });
+    const client = suiClient();
     const obj = await client.getObject({ id: LENDING_MARKET_ID, options: { showContent: true } });
     const content = obj.data?.content;
     if (content?.dataType !== 'moveObject') return;

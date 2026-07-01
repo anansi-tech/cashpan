@@ -18,6 +18,7 @@ export interface Contact {
 
 export interface VaultRecord {
   identityKey: string;
+  network: string;
   vaultId: string;
   ownerCapId: string;
   agentCapId?: string;
@@ -26,9 +27,11 @@ export interface VaultRecord {
   salt?: string;
   createdAt: Date;
   eventCursor?: string;
+  rebalanceCursor?: string;
   contacts?: Contact[];
   buffer?: string;
   band?: string;
+  savingsPrincipal?: string;
 }
 
 type VaultDoc = VaultRecord & Document;
@@ -43,19 +46,23 @@ const ContactSchema = new Schema<Contact>(
 );
 
 const VaultSchema = new Schema<VaultDoc>({
-  identityKey:   { type: String, required: true, unique: true, index: true },
-  vaultId:       { type: String, required: true },
-  ownerCapId:    { type: String, required: true },
-  agentCapId:    { type: String },
-  payoutAddress: { type: String, required: true },
-  coinType:      { type: String, required: true },
-  salt:          { type: String },
-  createdAt:     { type: Date, default: () => new Date() },
-  eventCursor:   { type: String },
-  contacts:      { type: [ContactSchema], default: [] },
-  buffer:        { type: String },
-  band:          { type: String },
+  identityKey:      { type: String, required: true, index: true },
+  network:          { type: String, required: true, default: 'mainnet' },
+  vaultId:          { type: String, required: true },
+  ownerCapId:       { type: String, required: true },
+  agentCapId:       { type: String },
+  payoutAddress:    { type: String, required: true },
+  coinType:         { type: String, required: true },
+  salt:             { type: String },
+  createdAt:        { type: Date, default: () => new Date() },
+  eventCursor:      { type: String },
+  rebalanceCursor:  { type: String },
+  contacts:         { type: [ContactSchema], default: [] },
+  buffer:           { type: String },
+  band:             { type: String },
+  savingsPrincipal: { type: String, default: '0' },
 });
+VaultSchema.index({ identityKey: 1, network: 1 }, { unique: true });
 
 function getModel(): Model<VaultDoc> {
   return (mongoose.models.Vault as Model<VaultDoc>) ??
@@ -73,19 +80,20 @@ export async function registerVault(record: Omit<VaultRecord, 'createdAt' | 'age
   return doc!.toObject();
 }
 
-export async function getByIdentity(identityKey: string): Promise<VaultRecord | null> {
+export async function getByIdentity(identityKey: string, network = 'mainnet'): Promise<VaultRecord | null> {
   await connectDB();
-  const doc = await getModel().findOne({ identityKey }).lean();
+  const doc = await getModel().findOne({ identityKey, network }).lean();
   return doc as VaultRecord | null;
 }
 
-export async function listVaults(): Promise<VaultRecord[]> {
+export async function listVaults(network?: string): Promise<VaultRecord[]> {
   await connectDB();
-  return getModel().find({}).lean() as Promise<VaultRecord[]>;
+  const filter = network ? { network } : {};
+  return getModel().find(filter).lean() as Promise<VaultRecord[]>;
 }
 
-export async function getActiveVault(identityKey: string): Promise<VaultRecord | null> {
-  return getByIdentity(identityKey);
+export async function getActiveVault(identityKey: string, network = 'mainnet'): Promise<VaultRecord | null> {
+  return getByIdentity(identityKey, network);
 }
 
 // ─── Settings (per-user buffer/band) ─────────────────────────────────────────
@@ -100,6 +108,18 @@ export async function updateSettings(identityKey: string, settings: { buffer?: s
 export async function updateCursor(identityKey: string, cursor: string): Promise<void> {
   await connectDB();
   await getModel().updateOne({ identityKey }, { $set: { eventCursor: cursor } });
+}
+
+export async function updateRebalanceCursor(identityKey: string, cursor: string): Promise<void> {
+  await connectDB();
+  await getModel().updateOne({ identityKey }, { $set: { rebalanceCursor: cursor } });
+}
+
+// ─── Savings principal (cost-basis tracking) ──────────────────────────────────
+
+export async function updateSavingsPrincipal(identityKey: string, newPrincipal: bigint): Promise<void> {
+  await connectDB();
+  await getModel().updateOne({ identityKey }, { $set: { savingsPrincipal: newPrincipal.toString() } });
 }
 
 // ─── Contacts (per-user address book) ────────────────────────────────────────

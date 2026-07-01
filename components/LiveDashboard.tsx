@@ -9,21 +9,6 @@ const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '9', 10);
 const COIN_FACTOR = 10 ** COIN_DEC;
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
 
-/**
- * Projects savings value forward in wall-clock time between on-chain polls.
- * Formula mirrors computeCurrentValue in src/sense.ts and lib/read-layer.ts.
- */
-function projectSavings(
-  principal: number,  // base units
-  rateBps: number,
-  periodEpochs: number,
-  elapsedMs: number,
-): number {
-  const epochDurationMs = 24 * 60 * 60 * 1000; // ~24h testnet epoch
-  const elapsedEpochs = elapsedMs / epochDurationMs;
-  const interest = (principal * rateBps * elapsedEpochs) / (10_000 * periodEpochs);
-  return principal + interest;
-}
 
 function fmt(base: number, d = 2): string {
   return (base / COIN_FACTOR).toFixed(d);
@@ -34,18 +19,13 @@ export function LiveDashboard() {
 
   const authRef = useRef({
     liquid: Number(balances?.liquid ?? 0),
-    savingsPrincipal: Number(balances?.savingsPrincipal ?? 0),
     savingsValue: Number(balances?.savingsValue ?? 0),
-    rateBps: Number(balances?.rateBps ?? 0),
-    periodEpochs: Number(balances?.periodEpochs ?? 1),
     currentEpoch: balances?.currentEpoch ?? '0',
-    pollTime: Date.now(),
   });
 
   const [displayed, setDisplayed] = useState({
     liquid: Number(balances?.liquid ?? 0),
     savingsValue: Number(balances?.savingsValue ?? 0),
-    savingsPrincipal: Number(balances?.savingsPrincipal ?? 0),
     currentEpoch: balances?.currentEpoch ?? '0',
   });
 
@@ -53,13 +33,9 @@ export function LiveDashboard() {
 
   const animate = useCallback(() => {
     const auth = authRef.current;
-    const elapsed = Date.now() - auth.pollTime;
-    const projected = auth.savingsPrincipal > 0
-      ? projectSavings(auth.savingsPrincipal, auth.rateBps, auth.periodEpochs, elapsed)
-      : auth.savingsValue;
     setDisplayed((prev) => {
-      const savingsDiff = projected - prev.savingsValue;
-      const easedSavings = Math.abs(savingsDiff) < 1 ? projected : prev.savingsValue + savingsDiff * 0.08;
+      const savingsDiff = auth.savingsValue - prev.savingsValue;
+      const easedSavings = Math.abs(savingsDiff) < 1 ? auth.savingsValue : prev.savingsValue + savingsDiff * 0.08;
       const liquidDiff = auth.liquid - prev.liquid;
       const easedLiquid = Math.abs(liquidDiff) < 1 ? auth.liquid : prev.liquid + liquidDiff * 0.06;
       return { ...prev, savingsValue: easedSavings, liquid: easedLiquid, currentEpoch: auth.currentEpoch };
@@ -76,14 +52,9 @@ export function LiveDashboard() {
     if (!balances) return;
     authRef.current = {
       liquid: Number(balances.liquid),
-      savingsPrincipal: Number(balances.savingsPrincipal),
       savingsValue: Number(balances.savingsValue),
-      rateBps: Number(balances.rateBps),
-      periodEpochs: Number(balances.periodEpochs),
       currentEpoch: balances.currentEpoch,
-      pollTime: Date.now(),
     };
-    setDisplayed((prev) => ({ ...prev, liquid: Number(balances.liquid), savingsPrincipal: Number(balances.savingsPrincipal) }));
   }, [balances]);
 
   const liquid = displayed.liquid;
@@ -91,12 +62,11 @@ export function LiveDashboard() {
   const total = liquid + savingsValue;
   const fillPercent = total > 0 ? (savingsValue / total) * 100 : 0;
 
-  const principal = displayed.savingsPrincipal;
-  const accrued = Math.max(0, savingsValue - principal);
+  const accrued = earnings ? Math.max(0, Number(earnings.accrued)) : 0;
   const accruedLabel = accrued > 0 ? `+$${fmt(accrued, 4)} earned` : undefined;
 
-  const annualAprPct = earnings
-    ? ((Number(earnings.aprBps) * 365) / (100 * authRef.current.periodEpochs)).toFixed(0)
+  const annualAprPct = earnings && Number(earnings.aprBps) > 0
+    ? (Number(earnings.aprBps) / 100).toFixed(1)
     : '–';
 
   return (
@@ -132,7 +102,7 @@ export function LiveDashboard() {
         <Divider />
         <Stat label="Earned" value={`$${fmt(accrued, 4)} ${COIN_SYM}`} color="var(--color-savings)" />
         <Divider />
-        <Stat label="Yield" value={`~${annualAprPct}% / yr`} />
+        <Stat label="Yield" value={annualAprPct !== '–' ? `~${annualAprPct}% APR (variable)` : '–'} />
       </div>
 
       {total === 0 ? (

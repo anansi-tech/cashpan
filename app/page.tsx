@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { validateReserveIndex } from '@/lib/suilend-sanity';
 import { getActiveVault } from '@/lib/db/vault-registry';
+import { suiNetwork } from '@/lib/sui';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { AsidePanel } from '@/components/AsidePanel';
@@ -22,7 +23,7 @@ export default async function Page() {
 
   if (!sub) return <SignIn />;
 
-  const vault = await getActiveVault(sub);
+  const vault = await getActiveVault(sub, suiNetwork());
 
   if (!vault) {
     return (
@@ -50,7 +51,7 @@ export default async function Page() {
 
   const [balances, earnings, activity] = await Promise.all([
     getBalances(vaultId),
-    getEarnings(vaultId),
+    getEarnings(vaultId, vault.savingsPrincipal ?? '0'),
     getAgentActivity(10, vaultId),
   ]);
 
@@ -107,7 +108,7 @@ export default async function Page() {
                 }}
               />
               <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>
-                Sui {process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet'} · epoch {balances.currentEpoch}
+                Sui {suiNetwork()} · epoch {balances.currentEpoch}
               </span>
             </div>
 

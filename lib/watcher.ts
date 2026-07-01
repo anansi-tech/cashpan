@@ -1,24 +1,20 @@
 /**
  * Proactive brain watcher — Layer 2 of Block 3.
  *
- * Iterates all registered vaults, queries DepositEvents since a durable
- * per-vault Mongo cursor, advances the cursor. Read-only: no keys, no signing.
- *
- * Layer 1 (computeReadTimeProposals) is the correctness backstop — a stopped
- * watcher degrades to "proposal shown on next app open," never "event ignored."
+ * Iterates all registered vaults, queries DepositEvents + RebalanceEvents
+ * since durable per-vault cursors, advances cursors, and tracks
+ * savingsPrincipal cost-basis for accrued-earnings display.
  *
  * Called by /api/cron/watcher (Vercel Cron or any scheduler).
  */
 
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-import { listVaults, updateCursor } from './db/vault-registry';
+import { suiClient, suiNetwork } from './sui';
+import { listVaults, updateCursor, updateRebalanceCursor, updateSavingsPrincipal } from './db/vault-registry';
+import { getBalances } from './read-layer';
 
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-
-function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
-}
+const SWEEP = 0;
+const TOPUP = 1;
 
 export interface WatcherResult {
   vaultsProcessed: number;
@@ -32,9 +28,11 @@ export async function runWatcher(): Promise<WatcherResult> {
     return { vaultsProcessed: 0, eventsFound: 0, errors: 0 };
   }
 
-  const depositEventType = `${PACKAGE_ID}::vault::DepositEvent`;
-  const client = makeClient();
-  const vaults = await listVaults();
+  const network = suiNetwork();
+  const depositEventType   = `${PACKAGE_ID}::vault::DepositEvent`;
+  const rebalanceEventType = `${PACKAGE_ID}::vault::RebalanceEvent`;
+  const client = suiClient();
+  const vaults = await listVaults(network);
 
   let eventsFound = 0;
   let errors = 0;
@@ -42,27 +40,77 @@ export async function runWatcher(): Promise<WatcherResult> {
   await Promise.allSettled(
     vaults.map(async (vault) => {
       try {
-        // Parse durable cursor — null means start from the beginning
-        const cursor: { txDigest: string; eventSeq: string } | null =
-          vault.eventCursor ? (JSON.parse(vault.eventCursor) as { txDigest: string; eventSeq: string }) : null;
+        // ── Deposit events (existing) ─────────────────────────────────────────
+        const depositCursor: { txDigest: string; eventSeq: string } | null =
+          vault.eventCursor ? JSON.parse(vault.eventCursor) as { txDigest: string; eventSeq: string } : null;
 
-        const result = await client.queryEvents({
+        const depositResult = await client.queryEvents({
           query: { MoveEventType: depositEventType },
-          cursor,
+          cursor: depositCursor,
           limit: 50,
           order: 'ascending',
         });
 
-        const vaultEvents = result.data.filter((ev) => {
+        const depositEvents = depositResult.data.filter((ev) => {
+          const json = ev.parsedJson as Record<string, unknown>;
+          return String(json.vault_id ?? '') === vault.vaultId;
+        });
+        eventsFound += depositEvents.length;
+
+        if (depositResult.nextCursor) {
+          await updateCursor(vault.identityKey, JSON.stringify(depositResult.nextCursor));
+        }
+
+        // ── Rebalance events (principal tracking) ─────────────────────────────
+        const rebalanceCursor: { txDigest: string; eventSeq: string } | null =
+          vault.rebalanceCursor ? JSON.parse(vault.rebalanceCursor) as { txDigest: string; eventSeq: string } : null;
+
+        const rebalanceResult = await client.queryEvents({
+          query: { MoveEventType: rebalanceEventType },
+          cursor: rebalanceCursor,
+          limit: 50,
+          order: 'ascending',
+        });
+
+        const rebalanceEvents = rebalanceResult.data.filter((ev) => {
           const json = ev.parsedJson as Record<string, unknown>;
           return String(json.vault_id ?? '') === vault.vaultId;
         });
 
-        eventsFound += vaultEvents.length;
+        if (rebalanceEvents.length > 0) {
+          let principal = BigInt(vault.savingsPrincipal ?? '0');
 
-        // Advance cursor past all processed events
-        if (result.nextCursor) {
-          await updateCursor(vault.identityKey, JSON.stringify(result.nextCursor));
+          for (const ev of rebalanceEvents) {
+            const json = ev.parsedJson as Record<string, unknown>;
+            const direction = Number(json.direction ?? -1);
+            const amount = BigInt(String(json.amount ?? '0'));
+
+            if (direction === SWEEP) {
+              principal += amount;
+            } else if (direction === TOPUP) {
+              // Proportional reduction: read savings value after withdrawal,
+              // then reconstruct pre-withdrawal value as (current + amount).
+              try {
+                const balances = await getBalances(vault.vaultId);
+                const savingsAfter = BigInt(balances.savingsValue);
+                const valueBeforeWithdraw = savingsAfter + amount;
+                if (valueBeforeWithdraw > 0n) {
+                  const reduction = (principal * amount) / valueBeforeWithdraw;
+                  principal = principal > reduction ? principal - reduction : 0n;
+                }
+              } catch {
+                // Can't read current savings — subtract amount directly as fallback
+                principal = principal > amount ? principal - amount : 0n;
+              }
+            }
+          }
+
+          await updateSavingsPrincipal(vault.identityKey, principal);
+          eventsFound += rebalanceEvents.length;
+        }
+
+        if (rebalanceResult.nextCursor) {
+          await updateRebalanceCursor(vault.identityKey, JSON.stringify(rebalanceResult.nextCursor));
         }
       } catch (err) {
         errors++;

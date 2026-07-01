@@ -6,6 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import { registerVault } from '@/lib/db/vault-registry';
+import { suiNetwork } from '@/lib/sui';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
   try {
     const vault = await registerVault({
       identityKey: decodeURIComponent(sub),
+      network: suiNetwork(),
       vaultId,
       ownerCapId,
       payoutAddress,

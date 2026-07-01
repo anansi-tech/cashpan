@@ -34,8 +34,8 @@ export interface ZkLoginSession {
 }
 
 function getClient(): SuiJsonRpcClient {
-  const network = process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet';
-  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network as 'testnet'), network });
+  const network = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet') as 'mainnet' | 'testnet';
+  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network), network });
 }
 
 export async function startLogin(): Promise<void> {

@@ -9,21 +9,16 @@
  * affordability (can the vault actually cover the amount?). The confirm tap is the guardrail.
  */
 
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { humanToBase, baseToHuman } from './coin-config';
+import { suiClient } from './sui';
 
-const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
 const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-
-function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
-}
 
 function readBalance(field: unknown): bigint {
   if (field !== null && typeof field === 'object' && 'value' in (field as object)) {
@@ -91,7 +86,7 @@ interface VaultState {
 }
 
 async function fetchVaultState(vaultId: string): Promise<VaultState> {
-  const client = makeClient();
+  const client = suiClient();
   const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
 
   if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
