@@ -10,14 +10,14 @@
  * Called by /api/cron/watcher (Vercel Cron or any scheduler).
  */
 
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { listVaults, updateCursor } from './db/vault-registry';
 
-const NETWORK = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'testnet') as 'testnet';
+const RPC_URL = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 
 function makeClient(): SuiJsonRpcClient {
-  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(NETWORK), network: NETWORK });
+  return new SuiJsonRpcClient({ url: RPC_URL, network: 'mainnet' });
 }
 
 export interface WatcherResult {
