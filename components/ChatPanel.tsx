@@ -11,6 +11,7 @@ import type { VaultTxContext } from '@/lib/vault-tx';
 export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vaultCtx: VaultTxContext }) {
   const [inputText, setInputText] = useState('');
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -53,7 +54,9 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
             key={msg.id}
             message={msg}
             dismissed={dismissed}
+            confirmed={confirmed}
             onDismiss={(id) => setDismissed((prev) => new Set([...prev, id]))}
+            onConfirm={(id) => setConfirmed((prev) => new Set([...prev, id]))}
             onSuccess={handleSuccess}
             vaultCtx={vaultCtx}
           />
@@ -142,13 +145,17 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
 function ChatMessage({
   message,
   dismissed,
+  confirmed,
   onDismiss,
+  onConfirm,
   onSuccess,
   vaultCtx,
 }: {
   message: UIMessage;
   dismissed: Set<string>;
+  confirmed: Set<string>;
   onDismiss: (id: string) => void;
+  onConfirm: (id: string) => void;
   onSuccess: (digest: string) => void;
   vaultCtx: VaultTxContext;
 }) {
@@ -172,10 +179,14 @@ function ChatMessage({
 
   if (!text && proposalParts.length === 0) return null;
 
+  // Hide the "Queued a send…" text once the user confirms the action card
+  const hasConfirmedProposal = proposalParts.some((p) => confirmed.has(p['toolCallId'] as string));
+  const showText = text && !hasConfirmedProposal;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
       {/* Text bubble first — gives context before the action card */}
-      {text && (
+      {showText && (
         <div style={{
           maxWidth: '88%',
           padding: '0.625rem 0.875rem',
@@ -199,7 +210,7 @@ function ChatMessage({
             key={callId}
             proposal={part['output'] as Proposal}
             onDismiss={() => onDismiss(callId)}
-            onSuccess={onSuccess}
+            onSuccess={(digest) => { onConfirm(callId); onSuccess(digest); }}
             vaultCtx={vaultCtx}
           />
         );
