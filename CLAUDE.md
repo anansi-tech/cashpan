@@ -143,6 +143,20 @@ QuickNode Sui Mainnet (SOC2/ISO, free tier):
 - `SUI_GRAPHQL_URL` — full HTTPS URL for GraphQL reads and SuiGraphQLClient.
 - `SUI_GRPC_HOST` — host:port (no protocol) for native gRPC, used by `@grpc/grpc-js`.
 - `SUI_GRPC_TOKEN` / `SUI_GRPC_AUTH_HEADER` — provider auth (header name in env, not code).
-- `SUI_RPC_URL` — JSON-RPC holdout for `devInspectTransactionBlock` (retired in Layer 2).
+- `SUI_RPC_URL` — QuickNode JSON-RPC URL; used **only** by `lib/watcher.ts` (standalone cron
+  agent). Web path is fully on GraphQL. Watcher `queryEvents` must migrate to a gRPC streaming
+  worker **before July 31, 2026** when QuickNode retires the JSON-RPC endpoint.
 
 Switching providers = change env values only, zero code changes.
+
+## Pre-merge TODO (feat/sui-data-stack)
+
+**Watcher gRPC migration (deadline: July 31, 2026)**
+`lib/watcher.ts` still calls `SuiJsonRpcClient.queryEvents()` (JSON-RPC) for DepositEvent and
+RebalanceEvent cursor tracking. This is the last JSON-RPC call in the codebase. Options:
+- (a) Lightweight always-on worker (Railway/Fly) holding a QuickNode native-gRPC
+  `SubscriptionService` stream — push events into Mongo, watcher reads from there.
+- (b) Replace `queryEvents` with raw GraphQL `events(filter: { eventType: "..." }, last: N)`
+  queries — no streaming, but zero new infra. Simpler; cursor becomes "latest N events" not
+  a durable position. Acceptable if event volume is low.
+Option (b) is the merge-unblocking path; implement it if the July 31 deadline is close.

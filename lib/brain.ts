@@ -9,7 +9,7 @@
 
 import { humanToBase, baseToHuman } from './coin-config';
 import { getBalances } from './read-layer';
-import { getCoinsRaw } from './sui';
+import { getCoinsByType } from './graphql';
 import type { Balances } from './read-layer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ export async function computeReadTimeProposals(
   settings: { buffer: string; band: string } = { buffer: '50', band: '5' },
 ): Promise<BrainProposal[]> {
   const [walletCoins, balances] = await Promise.all([
-    getCoinsRaw(walletAddress, coinType),
+    getCoinsByType(walletAddress, coinType),
     getBalances(vaultId),
   ]);
   return computeProposals(walletCoins, balances, settings);

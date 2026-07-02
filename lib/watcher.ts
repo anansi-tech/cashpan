@@ -8,7 +8,8 @@
  * Called by /api/cron/watcher (Vercel Cron or any scheduler).
  */
 
-import { suiClient, suiNetwork } from './sui';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { suiNetwork } from './sui';
 import { listVaults, updateCursor, updateRebalanceCursor, updateSavingsPrincipal } from './db/vault-registry';
 import { getBalances } from './read-layer';
 
@@ -31,7 +32,9 @@ export async function runWatcher(): Promise<WatcherResult> {
   const network = suiNetwork();
   const depositEventType   = `${PACKAGE_ID}::vault::DepositEvent`;
   const rebalanceEventType = `${PACKAGE_ID}::vault::RebalanceEvent`;
-  const client = suiClient();
+  // TODO (pre-merge): migrate queryEvents → gRPC streaming worker before July 31.
+  const rpcUrl = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
+  const client = new SuiJsonRpcClient({ url: rpcUrl, network: suiNetwork() });
   const vaults = await listVaults(network);
 
   let eventsFound = 0;

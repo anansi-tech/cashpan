@@ -217,6 +217,40 @@ export async function fetchEventsGQL(
   return data.data?.events?.nodes ?? [];
 }
 
+// ─── Coin objects by type (for mergeCoins in sweep PTBs) ─────────────────────
+
+export async function getCoinsByType(
+  owner: string,
+  coinType: string,
+): Promise<WalletCoin[]> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        address(address: "${owner}") {
+          objects(first: 50, filter: { type: "${coinType}" }) {
+            nodes {
+              address
+              balance(coinType: "${coinType}") { totalBalance }
+            }
+          }
+        }
+      }`,
+    }),
+  });
+  const data = await res.json() as {
+    data?: { address?: { objects?: { nodes?: GQLNode[] } } };
+    errors?: { message: string }[];
+  };
+  if (data.errors?.length) throw new Error(`GraphQL coins: ${data.errors[0].message}`);
+  const nodes = data.data?.address?.objects?.nodes ?? [];
+  return nodes.map((n) => ({
+    coinObjectId: n.address,
+    balance: n.balance?.totalBalance ?? '0',
+  }));
+}
+
 // Balance<T> arrives as a plain numeric string in GraphQL JSON (not {value:...}).
 function readLiquidBase(vaultJson: Record<string, unknown>): bigint {
   const liquid = vaultJson.liquid;
