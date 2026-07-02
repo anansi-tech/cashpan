@@ -11,7 +11,6 @@ import {
   getExtendedEphemeralPublicKey,
   type ZkLoginSignatureInputs,
 } from '@mysten/sui/zklogin';
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 
 const KEYS = {
   EPHEMERAL_KEY: 'cashpan_ephemeral_key',
@@ -33,15 +32,23 @@ export interface ZkLoginSession {
   picture?: string;
 }
 
-function getClient(): SuiJsonRpcClient {
-  const network = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet') as 'mainnet' | 'testnet';
-  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network), network });
+async function getCurrentEpoch(): Promise<number> {
+  const network = process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet';
+  const url = network === 'testnet'
+    ? 'https://sui-testnet.mystenlabs.com/graphql'
+    : 'https://sui-mainnet.mystenlabs.com/graphql';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: '{ epoch { epochId } }' }),
+  });
+  const data = await res.json() as { data?: { epoch?: { epochId?: string } } };
+  return Number(data.data?.epoch?.epochId ?? 0);
 }
 
 export async function startLogin(): Promise<void> {
-  const client = getClient();
-  const { epoch } = await client.getLatestSuiSystemState();
-  const maxEpoch = Number(epoch) + 10;
+  const epoch = await getCurrentEpoch();
+  const maxEpoch = epoch + 10;
 
   const ephemeralKey = new Ed25519Keypair();
   const randomness = generateRandomness();
@@ -175,8 +182,8 @@ export async function isSessionValid(): Promise<boolean> {
   const maxEpoch = getMaxEpoch();
   if (!maxEpoch) return false;
   try {
-    const { epoch } = await getClient().getLatestSuiSystemState();
-    return Number(epoch) < maxEpoch;
+    const epoch = await getCurrentEpoch();
+    return epoch < maxEpoch;
   } catch {
     return false;
   }

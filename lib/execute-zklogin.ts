@@ -5,7 +5,6 @@
 
 import { Transaction } from '@mysten/sui/transactions';
 import { getZkLoginSignature } from '@mysten/sui/zklogin';
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import {
   getSession,
   getEphemeralKeypair,
@@ -13,19 +12,15 @@ import {
   getMaxEpoch,
   buildAddressSeed,
 } from './auth';
+import { graphqlClient } from './graphql';
 import type { ZkLoginSignatureInputs } from '@mysten/sui/zklogin';
-
-function getClient(): SuiJsonRpcClient {
-  const network = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet') as 'mainnet' | 'testnet';
-  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network), network });
-}
 
 /**
  * Build the tx with onlyTransactionKind=true, get Shinami to sponsor it,
  * then sign with the user's ephemeral key + ZK proof, and submit both signatures.
  */
 export async function executeTransaction(tx: Transaction): Promise<unknown> {
-  const client = getClient();
+  const client = graphqlClient();
   const session = getSession();
   const ephemeralKey = getEphemeralKeypair();
   const zkProof = getZkProof();
@@ -62,9 +57,9 @@ export async function executeTransaction(tx: Transaction): Promise<unknown> {
   const inputs: ZkLoginSignatureInputs = { ...zkProof, addressSeed };
   const zkLoginSig = getZkLoginSignature({ inputs, maxEpoch, userSignature: ephemeralSig });
 
-  return client.executeTransactionBlock({
-    transactionBlock: sponsoredBytes,
-    signature: [zkLoginSig, sponsored.signature],
-    options: { showEffects: true, showEvents: true, showObjectChanges: true },
+  return client.executeTransaction({
+    transaction: sponsoredBytes,
+    signatures: [zkLoginSig, sponsored.signature],
+    include: { effects: true, events: true, balanceChanges: true },
   });
 }

@@ -3,6 +3,7 @@ import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { validateReserveIndex } from '@/lib/suilend-sanity';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { suiNetwork } from '@/lib/sui';
+import { LENDING_MARKET_ID } from '@/lib/graphql';
 import { LiveDashboard } from '@/components/LiveDashboard';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { AsidePanel } from '@/components/AsidePanel';
@@ -45,7 +46,7 @@ export default async function Page() {
     vaultId: vault.vaultId,
     ownerCapId: vault.ownerCapId,
     venueId: process.env.VENUE_ID!,
-    lendingMarketId: process.env.LENDING_MARKET_ID!,
+    lendingMarketId: LENDING_MARKET_ID,
     userAddress: vault.payoutAddress,
   };
 

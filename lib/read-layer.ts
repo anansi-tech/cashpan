@@ -12,23 +12,15 @@
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
-import { suiClient } from './sui';
-import { getLiveAprBps, LENDING_MARKET_ID } from './graphql';
+import { getLiveAprBps, LENDING_MARKET_ID, graphqlClient, fetchVaultBasic, fetchVaultJson, fetchEventsGQL } from './graphql';
+import type { GQLEventNode } from './graphql';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
-// Balance<T> appears as {value: "123"} in JSON-RPC; plain string in GraphQL.
-function readBalance(field: unknown): bigint {
-  if (field !== null && typeof field === 'object' && 'value' in (field as object)) {
-    return BigInt((field as { value: string }).value);
-  }
-  return BigInt(String(field));
-}
-
-async function fetchSavingsValue(client: ReturnType<typeof suiClient>, vaultId: string): Promise<bigint> {
+async function fetchSavingsValue(vaultId: string): Promise<bigint> {
   if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !P_TYPE || !COIN_TYPE) return 0n;
   try {
     const tx = new Transaction();
@@ -41,14 +33,15 @@ async function fetchSavingsValue(client: ReturnType<typeof suiClient>, vaultId: 
         tx.object(LENDING_MARKET_ID),
       ],
     });
-    const result = await client.devInspectTransactionBlock({
-      transactionBlock: tx,
-      sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
+    const result = await graphqlClient().simulateTransaction({
+      transaction: tx,
+      checksEnabled: false,
+      include: { commandResults: true },
     });
-    const bytes = result.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined;
-    if (bytes) return BigInt(bcs.u64().parse(new Uint8Array(bytes)));
+    const bytes = result.commandResults?.[0]?.returnValues?.[0]?.bcs;
+    if (bytes) return BigInt(bcs.u64().parse(bytes));
   } catch {
-    // devInspect failed — no active savings position or env not configured
+    // simulate failed — no active savings position or env not configured
   }
   return 0n;
 }
@@ -102,21 +95,10 @@ export interface Config {
 export { fetchSavingsValue };
 
 export async function getBalances(vaultId: string): Promise<Balances> {
-  const client = suiClient();
-
-  const [vaultObj, systemState] = await Promise.all([
-    client.getObject({ id: vaultId, options: { showContent: true } }),
-    client.getLatestSuiSystemState(),
+  const [{ liquid, currentEpoch }, savingsValue] = await Promise.all([
+    fetchVaultBasic(vaultId),
+    fetchSavingsValue(vaultId),
   ]);
-
-  if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-
-  const vf = vaultObj.data.content.fields as Record<string, unknown>;
-  const currentEpoch = BigInt(systemState.epoch);
-  const liquid = readBalance(vf.liquid);
-
-  const savingsValue = await fetchSavingsValue(client, vaultId);
-
   return {
     liquid: liquid.toString(),
     savingsValue: savingsValue.toString(),
@@ -139,7 +121,6 @@ export async function getAgentActivity(
   addressToName: Record<string, string> = {},
 ): Promise<ActivityEvent[]> {
   if (!PACKAGE_ID) return [];
-  const client = suiClient();
 
   const perType = Math.ceil(limit / 4) * 2;
   const eventTypes = [
@@ -150,28 +131,22 @@ export async function getAgentActivity(
   ];
 
   const results = await Promise.allSettled(
-    eventTypes.map((eventType) =>
-      client.queryEvents({
-        query: { MoveEventType: eventType },
-        limit: perType,
-        order: 'descending',
-      }),
-    ),
+    eventTypes.map((eventType) => fetchEventsGQL(eventType, perType)),
   );
 
   const events: ActivityEvent[] = [];
 
   for (const result of results) {
     if (result.status !== 'fulfilled') continue;
-    for (const ev of result.value.data) {
-      const json = ev.parsedJson as Record<string, unknown> | undefined;
+    for (const ev of result.value as GQLEventNode[]) {
+      const json = ev.json;
       if (!json) continue;
-      // Filter to the resolved vault when specified
       if (vaultId && String(json.vault_id ?? '') !== vaultId) continue;
-      const digest = (ev.id as { txDigest: string })?.txDigest ?? '';
-      const timestampMs = (ev as { timestampMs?: string }).timestampMs;
+      const digest = ev.transactionBlock?.digest ?? '';
+      const timestampMs = ev.timestamp ? String(new Date(ev.timestamp).getTime()) : undefined;
+      const evType = ev.type?.repr ?? '';
 
-      if (ev.type.endsWith('::RebalanceEvent')) {
+      if (evType.endsWith('::RebalanceEvent')) {
         const direction = Number(json.direction ?? 0);
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
@@ -187,7 +162,7 @@ export async function getAgentActivity(
           timestampMs,
           digest,
         });
-      } else if (ev.type.endsWith('::WithdrawEvent')) {
+      } else if (evType.endsWith('::WithdrawEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
@@ -196,7 +171,7 @@ export async function getAgentActivity(
           ? `Agent moved ${display} ${COIN_SYMBOL} to payout address`
           : `Withdrew ${display} ${COIN_SYMBOL} to wallet`;
         events.push({ type: 'withdraw', text, amount, byAgent, to, timestampMs, digest });
-      } else if (ev.type.endsWith('::SendEvent')) {
+      } else if (evType.endsWith('::SendEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
@@ -206,7 +181,7 @@ export async function getAgentActivity(
           ? `Agent sent ${display} ${COIN_SYMBOL} to ${toLabel}`
           : `Sent ${display} ${COIN_SYMBOL} to ${toLabel}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
-      } else if (ev.type.endsWith('::DepositEvent')) {
+      } else if (evType.endsWith('::DepositEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         events.push({ type: 'deposit', text: `Deposited ${display} ${COIN_SYMBOL}`, amount, timestampMs, digest });
@@ -222,13 +197,7 @@ export async function getConfig(
   vaultId: string,
   userSettings?: { buffer?: string; band?: string },
 ): Promise<Config> {
-  const client = suiClient();
-  const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
-
-  if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-
-  const vf = vaultObj.data.content.fields as Record<string, unknown>;
-
+  const vf = await fetchVaultJson(vaultId);
   return {
     buffer: userSettings?.buffer ?? '50',
     band: userSettings?.band ?? '5',

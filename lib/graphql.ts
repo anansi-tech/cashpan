@@ -134,6 +134,89 @@ export async function fetchVaultState(
   return { liquidBase, walletCoins, currentEpoch };
 }
 
+// ─── Minimal vault query (liquid + epoch + payoutAddress, no wallet coins) ────
+
+export interface VaultBasic {
+  liquid: bigint;
+  currentEpoch: bigint;
+  payoutAddress: string;
+}
+
+export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        epoch { epochId }
+        vault: object(address: "${vaultId}") {
+          asMoveObject { contents { json } }
+        }
+      }`,
+    }),
+  });
+  const json = await res.json() as { data?: GQLData; errors?: { message: string }[] };
+  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
+  if (!json.data) throw new Error('GraphQL returned no data');
+  const { epoch, vault } = json.data;
+  const vaultJson = vault?.asMoveObject?.contents?.json;
+  if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
+  return {
+    liquid: readLiquidBase(vaultJson),
+    currentEpoch: BigInt(epoch?.epochId ?? 0),
+    payoutAddress: String(vaultJson.payout_address ?? ''),
+  };
+}
+
+// ─── Raw vault JSON (all fields, no epoch) ────────────────────────────────────
+
+export async function fetchVaultJson(vaultId: string): Promise<Record<string, unknown>> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{ vault: object(address: "${vaultId}") { asMoveObject { contents { json } } } }`,
+    }),
+  });
+  const json = await res.json() as { data?: Pick<GQLData, 'vault'>; errors?: { message: string }[] };
+  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
+  const vaultJson = json.data?.vault?.asMoveObject?.contents?.json;
+  if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
+  return vaultJson;
+}
+
+// ─── Event querying ────────────────────────────────────────────────────────────
+
+export interface GQLEventNode {
+  json: Record<string, unknown> | null;
+  timestamp: string | null;
+  type: { repr: string } | null;
+  transactionBlock: { digest: string } | null;
+}
+
+export async function fetchEventsGQL(
+  eventType: string,
+  last = 20,
+): Promise<GQLEventNode[]> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        events(filter: { eventType: "${eventType}" }, last: ${last}) {
+          nodes { json timestamp type { repr } transactionBlock { digest } }
+        }
+      }`,
+    }),
+  });
+  const data = await res.json() as {
+    data?: { events?: { nodes?: GQLEventNode[] } };
+    errors?: { message: string }[];
+  };
+  if (data.errors?.length) throw new Error(`GraphQL events: ${data.errors[0].message}`);
+  return data.data?.events?.nodes ?? [];
+}
+
 // Balance<T> arrives as a plain numeric string in GraphQL JSON (not {value:...}).
 function readLiquidBase(vaultJson: Record<string, unknown>): bigint {
   const liquid = vaultJson.liquid;

@@ -4,7 +4,7 @@ import { getActiveVault } from '@/lib/db/vault-registry';
 import { fetchSavingsValue, getAgentActivity } from '@/lib/read-layer';
 import { fetchVaultState, getLiveAprBps } from '@/lib/graphql';
 import { computeProposals } from '@/lib/brain';
-import { suiClient, suiNetwork } from '@/lib/sui';
+import { suiNetwork } from '@/lib/sui';
 import type { Balances } from '@/lib/read-layer';
 
 export const dynamic = 'force-dynamic';
@@ -25,12 +25,11 @@ export async function GET(): Promise<Response> {
   const addressToName: Record<string, string> = {};
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
 
-  // One GraphQL call (vault + epoch + wallet coins) + one devInspect (savings).
+  // One GraphQL call (vault + epoch + wallet coins) + one simulateTransaction (savings).
   // Activity and APR run concurrently alongside them.
-  const client = suiClient();
   const [stateResult, savingsResult, activityResult, aprResult] = await Promise.allSettled([
     fetchVaultState(vault.vaultId, vault.payoutAddress, COIN_TYPE),
-    fetchSavingsValue(client, vault.vaultId),
+    fetchSavingsValue(vault.vaultId),
     getAgentActivity(10, vault.vaultId, addressToName),
     getLiveAprBps(COIN_TYPE),
   ]);

@@ -9,23 +9,14 @@
  * affordability (can the vault actually cover the amount?). The confirm tap is the guardrail.
  */
 
-import { Transaction } from '@mysten/sui/transactions';
-import { bcs } from '@mysten/sui/bcs';
 import { humanToBase, baseToHuman } from './coin-config';
-import { suiClient } from './sui';
+import { fetchVaultBasic, LENDING_MARKET_ID } from './graphql';
+import { fetchSavingsValue } from './read-layer';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
 const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-
-function readBalance(field: unknown): bigint {
-  if (field !== null && typeof field === 'object' && 'value' in (field as object)) {
-    return BigInt((field as { value: string }).value);
-  }
-  return BigInt(String(field ?? '0'));
-}
 
 /** Build a normalised label→address map from the user's saved contacts. */
 export function buildContactMap(contacts: Array<{ label: string; address: string }>): Record<string, string> {
@@ -86,39 +77,10 @@ interface VaultState {
 }
 
 async function fetchVaultState(vaultId: string): Promise<VaultState> {
-  const client = suiClient();
-  const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
-
-  if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-
-  const vf = vaultObj.data.content.fields as Record<string, unknown>;
-  const liquid = readBalance(vf.liquid);
-  const payoutAddress = String(vf.payout_address ?? '');
-
-  let savingsValue = 0n;
-  if (PACKAGE_ID && VENUE_ID && LENDING_MARKET_ID && P_TYPE && COIN_TYPE) {
-    try {
-      const tx = new Transaction();
-      tx.moveCall({
-        target: `${PACKAGE_ID}::vault::savings_balance`,
-        typeArguments: [P_TYPE, COIN_TYPE],
-        arguments: [
-          tx.object(vaultId),
-          tx.object(VENUE_ID),
-          tx.object(LENDING_MARKET_ID),
-        ],
-      });
-      const result = await client.devInspectTransactionBlock({
-        transactionBlock: tx,
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      });
-      const bytes = result.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined;
-      if (bytes) savingsValue = BigInt(bcs.u64().parse(new Uint8Array(bytes)));
-    } catch {
-      // devInspect failed — no active savings position or env not configured
-    }
-  }
-
+  const [{ liquid, payoutAddress }, savingsValue] = await Promise.all([
+    fetchVaultBasic(vaultId),
+    fetchSavingsValue(vaultId),
+  ]);
   return { liquid, savingsValue, payoutAddress };
 }
 
