@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getActiveVault } from '@/lib/db/vault-registry';
-import { getBalances, getAgentActivity, getLiveAprBps } from '@/lib/read-layer';
+import { fetchSavingsValue, getAgentActivity } from '@/lib/read-layer';
+import { fetchVaultState, getLiveAprBps } from '@/lib/graphql';
 import { computeProposals } from '@/lib/brain';
-import { getCoinsRaw, suiNetwork } from '@/lib/sui';
-import type { WalletCoin } from '@/lib/brain';
+import { suiClient, suiNetwork } from '@/lib/sui';
+import type { Balances } from '@/lib/read-layer';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,30 +25,44 @@ export async function GET(): Promise<Response> {
   const addressToName: Record<string, string> = {};
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
 
-  const [balancesResult, coinsResult, activityResult, aprResult] = await Promise.allSettled([
-    getBalances(vault.vaultId),
-    getCoinsRaw(vault.payoutAddress, COIN_TYPE),
+  // One GraphQL call (vault + epoch + wallet coins) + one devInspect (savings).
+  // Activity and APR run concurrently alongside them.
+  const client = suiClient();
+  const [stateResult, savingsResult, activityResult, aprResult] = await Promise.allSettled([
+    fetchVaultState(vault.vaultId, vault.payoutAddress, COIN_TYPE),
+    fetchSavingsValue(client, vault.vaultId),
     getAgentActivity(10, vault.vaultId, addressToName),
-    getLiveAprBps(),
+    getLiveAprBps(COIN_TYPE),
   ]);
 
-  if (balancesResult.status === 'rejected') {
-    console.error('[state] getBalances failed:', balancesResult.reason, { vaultId: vault.vaultId });
+  if (stateResult.status === 'rejected') {
+    console.error('[state] fetchVaultState failed:', stateResult.reason, { vaultId: vault.vaultId });
   }
-  if (coinsResult.status === 'rejected') {
-    console.error('[state] getCoins failed:', coinsResult.reason, { payoutAddress: vault.payoutAddress, COIN_TYPE });
+  if (savingsResult.status === 'rejected') {
+    console.error('[state] fetchSavingsValue failed:', savingsResult.reason, { vaultId: vault.vaultId });
   }
 
-  const balances = balancesResult.status === 'fulfilled' ? balancesResult.value : null;
-  const walletCoins: WalletCoin[] = coinsResult.status === 'fulfilled' ? coinsResult.value : [];
+  const gql = stateResult.status === 'fulfilled' ? stateResult.value : null;
+  const savingsValue = savingsResult.status === 'fulfilled' ? savingsResult.value : 0n;
   const activity = activityResult.status === 'fulfilled' ? activityResult.value : [];
   const aprBps = aprResult.status === 'fulfilled' ? aprResult.value : 0;
 
+  const walletCoins = gql?.walletCoins ?? [];
+
+  const balances: Balances | null = gql
+    ? {
+        liquid: gql.liquidBase.toString(),
+        savingsValue: savingsValue.toString(),
+        total: (gql.liquidBase + savingsValue).toString(),
+        currentEpoch: gql.currentEpoch.toString(),
+      }
+    : null;
+
   const savingsPrincipal = vault.savingsPrincipal ?? '0';
-  const savingsValue = balances ? BigInt(balances.savingsValue) : 0n;
+  const savingsValueBig = balances ? BigInt(balances.savingsValue) : 0n;
   const principalBig = BigInt(savingsPrincipal);
   const earnings = {
-    accrued: (savingsValue > principalBig ? savingsValue - principalBig : 0n).toString(),
+    accrued: (savingsValueBig > principalBig ? savingsValueBig - principalBig : 0n).toString(),
     aprBps: String(aprBps),
   };
 

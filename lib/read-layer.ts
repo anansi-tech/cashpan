@@ -13,15 +13,14 @@ import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
 import { suiClient } from './sui';
+import { getLiveAprBps, LENDING_MARKET_ID } from './graphql';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
 const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-const RESERVE_INDEX = Number(process.env.RESERVE_INDEX ?? '7');
 
-// Balance<T> appears as {value: "123"} in some SDK versions, plain string in others.
+// Balance<T> appears as {value: "123"} in JSON-RPC; plain string in GraphQL.
 function readBalance(field: unknown): bigint {
   if (field !== null && typeof field === 'object' && 'value' in (field as object)) {
     return BigInt((field as { value: string }).value);
@@ -54,49 +53,9 @@ async function fetchSavingsValue(client: ReturnType<typeof suiClient>, vaultId: 
   return 0n;
 }
 
-// ─── Suilend live APR ─────────────────────────────────────────────────────────
+// ─── Suilend live APR — delegated to lib/graphql.ts (SuilendClient) ───────────
 
-function interpolateApr(utils: number[], aprs: number[], utilizationPct: number): number {
-  if (utilizationPct <= utils[0]) return aprs[0];
-  if (utilizationPct >= utils[utils.length - 1]) return aprs[aprs.length - 1];
-  for (let i = 1; i < utils.length; i++) {
-    if (utilizationPct <= utils[i]) {
-      const slope = (aprs[i] - aprs[i - 1]) / (utils[i] - utils[i - 1]);
-      return aprs[i - 1] + slope * (utilizationPct - utils[i - 1]);
-    }
-  }
-  return aprs[aprs.length - 1];
-}
-
-export async function getLiveAprBps(): Promise<number> {
-  if (!LENDING_MARKET_ID) return 0;
-  try {
-    const client = suiClient();
-    const obj = await client.getObject({ id: LENDING_MARKET_ID, options: { showContent: true } });
-    if (obj.data?.content?.dataType !== 'moveObject') return 0;
-    const topFields = obj.data.content.fields as Record<string, unknown>;
-    const reserves = topFields.reserves as unknown[] | undefined;
-    if (!Array.isArray(reserves) || reserves.length <= RESERVE_INDEX) return 0;
-
-    const r = (reserves[RESERVE_INDEX] as Record<string, unknown>).fields as Record<string, unknown>;
-    const ctokenSupply = BigInt(String(r.ctoken_supply ?? 0));
-    const available = BigInt(String(r.available_amount ?? 0));
-    const configEl = ((r.config as Record<string, unknown>)?.fields as Record<string, unknown>)?.element;
-    const cfg = ((configEl as Record<string, unknown>)?.fields ?? {}) as Record<string, unknown>;
-    const spreadFeeBps = Number(cfg.spread_fee_bps ?? 2000);
-    const utils = cfg.interest_rate_utils as number[] ?? [0, 93, 97, 100];
-    const aprs = (cfg.interest_rate_aprs as string[] ?? ['400', '700', '1500', '15000']).map(Number);
-
-    // utilization: ctoken_supply ≈ total deposits; available = unlent portion
-    const borrowed = ctokenSupply > available ? ctokenSupply - available : 0n;
-    const utilizationPct = ctokenSupply > 0n ? Number((borrowed * 100n) / ctokenSupply) : 0;
-    const borrowAprBps = interpolateApr(utils, aprs, utilizationPct);
-    const supplyAprBps = Math.floor(borrowAprBps * (utilizationPct / 100) * (1 - spreadFeeBps / 10000));
-    return supplyAprBps;
-  } catch {
-    return 0;
-  }
-}
+export { getLiveAprBps };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,6 +97,9 @@ export interface Config {
 }
 
 // ─── Read functions ────────────────────────────────────────────────────────────
+
+// Exported so /api/state can call it separately alongside fetchVaultState().
+export { fetchSavingsValue };
 
 export async function getBalances(vaultId: string): Promise<Balances> {
   const client = suiClient();
