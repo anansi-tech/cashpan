@@ -217,6 +217,45 @@ export async function fetchEventsGQL(
   return data.data?.events?.nodes ?? [];
 }
 
+export interface PackageEventsPage {
+  events: GQLEventNode[];
+  nextCursor: string | null;
+}
+
+export async function queryPackageEvents(
+  eventType: string,
+  cursor: string | null = null,
+  limit = 50,
+): Promise<PackageEventsPage> {
+  const afterClause = cursor ? `, after: ${JSON.stringify(cursor)}` : '';
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        events(filter: { eventType: "${eventType}" }, first: ${limit}${afterClause}) {
+          nodes { json timestamp type { repr } transactionBlock { digest } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`,
+    }),
+  });
+  const data = await res.json() as {
+    data?: {
+      events?: {
+        nodes?: GQLEventNode[];
+        pageInfo?: { hasNextPage: boolean; endCursor?: string | null };
+      };
+    };
+    errors?: { message: string }[];
+  };
+  if (data.errors?.length) throw new Error(`GraphQL events: ${data.errors[0].message}`);
+  const nodes = data.data?.events?.nodes ?? [];
+  const pageInfo = data.data?.events?.pageInfo;
+  const nextCursor = pageInfo?.hasNextPage ? (pageInfo.endCursor ?? null) : null;
+  return { events: nodes, nextCursor };
+}
+
 // ─── Coin objects by type (for mergeCoins in sweep PTBs) ─────────────────────
 
 export async function getCoinsByType(

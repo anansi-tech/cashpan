@@ -122,6 +122,32 @@ export async function updateSavingsPrincipal(identityKey: string, newPrincipal: 
   await getModel().updateOne({ identityKey }, { $set: { savingsPrincipal: newPrincipal.toString() } });
 }
 
+// ─── Global watcher cursor (one per event type) ───────────────────────────────
+
+interface WatcherStateDoc extends Document {
+  key: string;
+  cursor: string;
+}
+
+function getWatcherModel(): Model<WatcherStateDoc> {
+  return (mongoose.models.WatcherState as Model<WatcherStateDoc>) ??
+    mongoose.model<WatcherStateDoc>('WatcherState', new Schema<WatcherStateDoc>({
+      key:    { type: String, required: true, unique: true },
+      cursor: { type: String, required: true },
+    }));
+}
+
+export async function getWatcherCursor(key: string): Promise<string | null> {
+  await connectDB();
+  const doc = await getWatcherModel().findOne({ key }).lean();
+  return (doc as { cursor?: string } | null)?.cursor ?? null;
+}
+
+export async function setWatcherCursor(key: string, cursor: string): Promise<void> {
+  await connectDB();
+  await getWatcherModel().updateOne({ key }, { $set: { cursor } }, { upsert: true });
+}
+
 // ─── Contacts (per-user address book) ────────────────────────────────────────
 
 const SUI_ADDRESS_RE = /^0x[0-9a-fA-F]{64}$/;

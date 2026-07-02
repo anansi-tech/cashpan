@@ -1,17 +1,22 @@
 /**
- * Proactive brain watcher — Layer 2 of Block 3.
+ * Proactive brain watcher.
  *
- * Iterates all registered vaults, queries DepositEvents + RebalanceEvents
- * since durable per-vault cursors, advances cursors, and tracks
- * savingsPrincipal cost-basis for accrued-earnings display.
+ * ONE global cursor per event type (not per-vault). Pages forward through all
+ * package events, dispatches to vaults via O(1) Map lookup, and persists the
+ * cursor after each page so a crash only replays the current page.
  *
  * Called by /api/cron/watcher (Vercel Cron or any scheduler).
  */
 
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { suiNetwork } from './sui';
-import { listVaults, updateCursor, updateRebalanceCursor, updateSavingsPrincipal } from './db/vault-registry';
+import {
+  listVaults,
+  updateSavingsPrincipal,
+  getWatcherCursor,
+  setWatcherCursor,
+} from './db/vault-registry';
 import { getBalances } from './read-layer';
+import { queryPackageEvents } from './graphql';
 
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 const SWEEP = 0;
@@ -32,111 +37,110 @@ export async function runWatcher(): Promise<WatcherResult> {
   const network = suiNetwork();
   const depositEventType   = `${PACKAGE_ID}::vault::DepositEvent`;
   const rebalanceEventType = `${PACKAGE_ID}::vault::RebalanceEvent`;
-  // TODO (pre-merge): migrate queryEvents → gRPC streaming worker before July 31.
-  const rpcUrl = process.env.SUI_RPC_URL ?? 'https://fullnode.mainnet.sui.io:443';
-  const client = new SuiJsonRpcClient({ url: rpcUrl, network: suiNetwork() });
-  const vaults = await listVaults(network);
 
+  const [vaults, depositCursor, rebalanceCursor] = await Promise.all([
+    listVaults(network),
+    getWatcherCursor(depositEventType),
+    getWatcherCursor(rebalanceEventType),
+  ]);
+
+  // O(1) dispatch: vaultId → VaultRecord
+  const vaultMap = new Map(vaults.map((v) => [v.vaultId, v]));
   let eventsFound = 0;
   let errors = 0;
 
+  // ── Backfill: seed savingsPrincipal for vaults registered before cost-basis tracking ──
   await Promise.allSettled(
-    vaults.map(async (vault) => {
-      try {
-        // ── Backfill: seed savingsPrincipal for vaults that were registered before
-        //    cost-basis tracking was added. Run once (when principal is '0') then
-        //    never again — the execute path keeps it current going forward.
-        if (!vault.savingsPrincipal || vault.savingsPrincipal === '0') {
+    vaults
+      .filter((v) => !v.savingsPrincipal || v.savingsPrincipal === '0')
+      .map(async (vault) => {
+        try {
+          const balances = await getBalances(vault.vaultId);
+          const savingsValue = BigInt(balances.savingsValue);
+          if (savingsValue > 0n) {
+            await updateSavingsPrincipal(vault.identityKey, savingsValue);
+            vault.savingsPrincipal = savingsValue.toString();
+          }
+        } catch { /* non-fatal */ }
+      }),
+  );
+
+  // ── Deposit events ───────────────────────────────────────────────────────────
+  try {
+    let cursor = depositCursor;
+    let hasMore = true;
+    while (hasMore) {
+      const { events, nextCursor } = await queryPackageEvents(depositEventType, cursor);
+      for (const ev of events) {
+        const vaultId = String(ev.json?.vault_id ?? '');
+        if (vaultMap.has(vaultId)) eventsFound++;
+      }
+      if (nextCursor) await setWatcherCursor(depositEventType, nextCursor);
+      cursor = nextCursor;
+      hasMore = nextCursor !== null;
+    }
+  } catch (err) {
+    errors++;
+    console.error('[watcher] deposit events:', err instanceof Error ? err.message : err);
+  }
+
+  // ── Rebalance events (principal tracking) ────────────────────────────────────
+  try {
+    let cursor = rebalanceCursor;
+    let hasMore = true;
+    // Accumulate per-vault principal deltas across all pages before flushing.
+    const principalMap = new Map<string, bigint>();
+
+    while (hasMore) {
+      const { events, nextCursor } = await queryPackageEvents(rebalanceEventType, cursor);
+
+      for (const ev of events) {
+        const json = ev.json;
+        if (!json) continue;
+        const vaultId = String(json.vault_id ?? '');
+        const vault = vaultMap.get(vaultId);
+        if (!vault) continue;
+
+        const direction = Number(json.direction ?? -1);
+        const amount = BigInt(String(json.amount ?? '0'));
+        let principal = principalMap.get(vaultId) ?? BigInt(vault.savingsPrincipal ?? '0');
+
+        if (direction === SWEEP) {
+          principal += amount;
+        } else if (direction === TOPUP) {
           try {
-            const balances = await getBalances(vault.vaultId);
-            const savingsValue = BigInt(balances.savingsValue);
-            if (savingsValue > 0n) {
-              await updateSavingsPrincipal(vault.identityKey, savingsValue);
-              vault.savingsPrincipal = savingsValue.toString();
+            const balances = await getBalances(vaultId);
+            const savingsAfter = BigInt(balances.savingsValue);
+            const valueBeforeWithdraw = savingsAfter + amount;
+            if (valueBeforeWithdraw > 0n) {
+              const reduction = (principal * amount) / valueBeforeWithdraw;
+              principal = principal > reduction ? principal - reduction : 0n;
             }
           } catch {
-            // Non-fatal: watcher will retry on next tick
+            principal = principal > amount ? principal - amount : 0n;
           }
         }
 
-        // ── Deposit events (existing) ─────────────────────────────────────────
-        const depositCursor: { txDigest: string; eventSeq: string } | null =
-          vault.eventCursor ? JSON.parse(vault.eventCursor) as { txDigest: string; eventSeq: string } : null;
-
-        const depositResult = await client.queryEvents({
-          query: { MoveEventType: depositEventType },
-          cursor: depositCursor,
-          limit: 50,
-          order: 'ascending',
-        });
-
-        const depositEvents = depositResult.data.filter((ev) => {
-          const json = ev.parsedJson as Record<string, unknown>;
-          return String(json.vault_id ?? '') === vault.vaultId;
-        });
-        eventsFound += depositEvents.length;
-
-        if (depositResult.nextCursor) {
-          await updateCursor(vault.identityKey, JSON.stringify(depositResult.nextCursor));
-        }
-
-        // ── Rebalance events (principal tracking) ─────────────────────────────
-        const rebalanceCursor: { txDigest: string; eventSeq: string } | null =
-          vault.rebalanceCursor ? JSON.parse(vault.rebalanceCursor) as { txDigest: string; eventSeq: string } : null;
-
-        const rebalanceResult = await client.queryEvents({
-          query: { MoveEventType: rebalanceEventType },
-          cursor: rebalanceCursor,
-          limit: 50,
-          order: 'ascending',
-        });
-
-        const rebalanceEvents = rebalanceResult.data.filter((ev) => {
-          const json = ev.parsedJson as Record<string, unknown>;
-          return String(json.vault_id ?? '') === vault.vaultId;
-        });
-
-        if (rebalanceEvents.length > 0) {
-          let principal = BigInt(vault.savingsPrincipal ?? '0');
-
-          for (const ev of rebalanceEvents) {
-            const json = ev.parsedJson as Record<string, unknown>;
-            const direction = Number(json.direction ?? -1);
-            const amount = BigInt(String(json.amount ?? '0'));
-
-            if (direction === SWEEP) {
-              principal += amount;
-            } else if (direction === TOPUP) {
-              // Proportional reduction: read savings value after withdrawal,
-              // then reconstruct pre-withdrawal value as (current + amount).
-              try {
-                const balances = await getBalances(vault.vaultId);
-                const savingsAfter = BigInt(balances.savingsValue);
-                const valueBeforeWithdraw = savingsAfter + amount;
-                if (valueBeforeWithdraw > 0n) {
-                  const reduction = (principal * amount) / valueBeforeWithdraw;
-                  principal = principal > reduction ? principal - reduction : 0n;
-                }
-              } catch {
-                // Can't read current savings — subtract amount directly as fallback
-                principal = principal > amount ? principal - amount : 0n;
-              }
-            }
-          }
-
-          await updateSavingsPrincipal(vault.identityKey, principal);
-          eventsFound += rebalanceEvents.length;
-        }
-
-        if (rebalanceResult.nextCursor) {
-          await updateRebalanceCursor(vault.identityKey, JSON.stringify(rebalanceResult.nextCursor));
-        }
-      } catch (err) {
-        errors++;
-        console.error(`[watcher] vault ${vault.vaultId}:`, err instanceof Error ? err.message : err);
+        principalMap.set(vaultId, principal);
+        eventsFound++;
       }
-    }),
-  );
+
+      if (nextCursor) await setWatcherCursor(rebalanceEventType, nextCursor);
+      cursor = nextCursor;
+      hasMore = nextCursor !== null;
+    }
+
+    // Flush principal updates after all pages are consumed.
+    await Promise.allSettled(
+      Array.from(principalMap.entries()).map(([vaultId, principal]) => {
+        const vault = vaultMap.get(vaultId)!;
+        return updateSavingsPrincipal(vault.identityKey, principal);
+      }),
+    );
+  } catch (err) {
+    errors++;
+    console.error('[watcher] rebalance events:', err instanceof Error ? err.message : err);
+  }
 
   return { vaultsProcessed: vaults.length, eventsFound, errors };
 }
