@@ -1,8 +1,10 @@
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
-  // Don't bundle @mysten/sui — it's a Node.js package and must resolve at runtime
-  serverExternalPackages: ['@mysten/sui'],
+  // Resolve at runtime via Node.js (not Webpack) — @suilend/sdk pulls in
+  // @pythnetwork/pyth-sui-js (CJS) which require()s @mysten/sui (ESM).
+  // Webpack can't cross that boundary; Node.js 22+ handles it natively.
+  serverExternalPackages: ['@mysten/sui', '@suilend/sdk'],
   // Single-source coin config: derive NEXT_PUBLIC_* from server-side vars
   // so COIN_DECIMALS/COIN_SYMBOL/COIN_TYPE in .env is the only place to set them.
   env: {
