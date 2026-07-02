@@ -14,11 +14,10 @@ interface PocketCardProps {
 
 export function PocketCard({ type, amountBase, label, sublabel }: PocketCardProps) {
   const isSavings = type === 'savings';
-  // Savings shows COIN_DEC places (last 3 are the ticking tail); liquid shows 2
-  const displayDec = isSavings ? COIN_DEC : 2;
+  const displayDec = 2;
   const raw = (Number(amountBase) / COIN_FACTOR).toFixed(displayDec);
-  const mainDigits = isSavings ? raw.slice(0, -3) : raw;
-  const tailDigits = isSavings ? raw.slice(-3) : '';
+  const mainDigits = raw;
+  const tailDigits = '';
 
   return (
     <div
@@ -83,18 +82,6 @@ export function PocketCard({ type, amountBase, label, sublabel }: PocketCardProp
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {mainDigits}
         </span>
-        {tailDigits && (
-          <span
-            style={{
-              color: 'rgba(52,211,153,0.45)',
-              fontSize: '1.1rem',
-              flexShrink: 0,
-              letterSpacing: '-0.01em',
-            }}
-          >
-            {tailDigits}
-          </span>
-        )}
       </div>
 
       <div style={{ color: 'var(--color-muted-2)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
