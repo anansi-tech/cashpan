@@ -16,6 +16,9 @@
     "create-vault": "tsx scripts/create-vault.ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
+  "overrides": {
+    "@mysten/sui": "2.17.0"
+  },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.74",
     "@ai-sdk/react": "^3.0.211",
