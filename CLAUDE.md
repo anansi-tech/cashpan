@@ -117,10 +117,32 @@ one-time backfill for existing rows in the SAME commit. Adding a network-scoped 
 without backfilling, or cost-basis tracking without seeding existing positions, both
 broke production. New field/semantics → backfill existing data, always.
 
-## Dependency pin (standing)
-`@mysten/sui` is pinned to 2.15.0 deliberately. Coin reads use getCoinsRaw()
-(raw suix_getCoins) because SuiJsonRpcClient.getCoins() returns [] at 2.15.
-Client-class names and transport behavior shift across 2.15↔2.17 and the Suilend
-SDK constrains the range. Do NOT bump casually. Upgrading requires a dedicated
-branch + full money-flow re-verification (fresh clone, devInspect dry-run, real
-$ sweep/topup/redeem round-trip).
+## Dependency pins (standing)
+
+**On `main` (pre-migration):** `@mysten/sui@2.15.0` (no `@suilend/sdk`). Coin
+reads use raw `suix_getCoins` fetch because `SuiJsonRpcClient.getCoins()` returns
+`[]` at this version.
+
+**On `feat/sui-data-stack` (Step 0 verified 2026-07-02):**
+- `@mysten/sui@2.17.0` — pinned exactly; `@suilend/sdk@3.0.4` requires it.
+- `@suilend/sdk@3.0.4` — latest as of pin date.
+- Both deduped to a single `@mysten/sui` at the root level (verified with `npm ls`).
+- `SuiGrpcClient` and `SuiGraphQLClient` share the same `BaseClient` interface;
+  `SuilendClient.initialize()` accepts either. QuickNode port 9000 is native gRPC
+  (HTTP/2, not gRPC-web) — use `SuiGraphQLClient` for SDK reads; use `@grpc/grpc-js`
+  directly for Layer 2 streaming subscriptions.
+- USDC reserve index in Suilend lending market: **7** (live-resolved via
+  `findReserveArrayIndex(COIN_TYPE)` — do not hardcode in env after Layer 1).
+
+Do NOT bump either package casually. Upgrading requires a dedicated branch +
+full money-flow re-verification.
+
+## Provider (standing, feat/sui-data-stack)
+
+QuickNode Sui Mainnet (SOC2/ISO, free tier):
+- `SUI_GRAPHQL_URL` — full HTTPS URL for GraphQL reads and SuiGraphQLClient.
+- `SUI_GRPC_HOST` — host:port (no protocol) for native gRPC, used by `@grpc/grpc-js`.
+- `SUI_GRPC_TOKEN` / `SUI_GRPC_AUTH_HEADER` — provider auth (header name in env, not code).
+- `SUI_RPC_URL` — JSON-RPC holdout for `devInspectTransactionBlock` (retired in Layer 2).
+
+Switching providers = change env values only, zero code changes.
