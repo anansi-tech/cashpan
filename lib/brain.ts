@@ -43,6 +43,9 @@ export type BrainProposal = AddToCashPanProposal | SweepToSaveProposal | TopupFr
 
 // ─── Pure core ────────────────────────────────────────────────────────────────
 
+// Minimum move size — no sub-cent proposals.
+const MIN_MOVE = humanToBase('0.01');
+
 export function computeProposals(
   walletCoins: WalletCoin[],
   balances: Balances,
@@ -62,29 +65,35 @@ export function computeProposals(
     }
   }
 
-  // 2+3. Rebalance proposals — mirrors decide() without perTxCap (owner is uncapped)
+  // 2+3. Rebalance proposals — symmetric deadband both directions.
+  // Sweep fires when liquid >= buffer + band (too much in Spend).
+  // Topup fires when liquid <= buffer - band (too little in Spend).
+  // When band >= buffer, topup never fires — correct hysteresis.
   const buffer = humanToBase(settings.buffer);
   const band = humanToBase(settings.band);
   const liquid = BigInt(balances.liquid);
   const savingsValue = BigInt(balances.savingsValue);
 
   if (buffer > 0n) {
-    if (liquid > buffer + band) {
+    const sweepAmount = liquid > buffer ? liquid - buffer : 0n;
+    if (liquid >= buffer + band && sweepAmount >= MIN_MOVE) {
       proposals.push({
         type: 'sweep-to-save',
-        amountSui: baseToHuman(liquid - buffer),
+        amountSui: baseToHuman(sweepAmount),
         spendBalance: baseToHuman(liquid),
         savingsBalance: baseToHuman(savingsValue),
       });
-    } else if (liquid < buffer && savingsValue > 0n) {
+    } else if (band < buffer && liquid <= buffer - band && savingsValue > 0n) {
       const deficit = buffer - liquid;
       const amount = deficit < savingsValue ? deficit : savingsValue;
-      proposals.push({
-        type: 'topup-from-save',
-        amountSui: baseToHuman(amount),
-        spendBalance: baseToHuman(liquid),
-        savingsBalance: baseToHuman(savingsValue),
-      });
+      if (amount >= MIN_MOVE) {
+        proposals.push({
+          type: 'topup-from-save',
+          amountSui: baseToHuman(amount),
+          spendBalance: baseToHuman(liquid),
+          savingsBalance: baseToHuman(savingsValue),
+        });
+      }
     }
   }
 

@@ -40,6 +40,22 @@ export async function runWatcher(): Promise<WatcherResult> {
   await Promise.allSettled(
     vaults.map(async (vault) => {
       try {
+        // ── Backfill: seed savingsPrincipal for vaults that were registered before
+        //    cost-basis tracking was added. Run once (when principal is '0') then
+        //    never again — the execute path keeps it current going forward.
+        if (!vault.savingsPrincipal || vault.savingsPrincipal === '0') {
+          try {
+            const balances = await getBalances(vault.vaultId);
+            const savingsValue = BigInt(balances.savingsValue);
+            if (savingsValue > 0n) {
+              await updateSavingsPrincipal(vault.identityKey, savingsValue);
+              vault.savingsPrincipal = savingsValue.toString();
+            }
+          } catch {
+            // Non-fatal: watcher will retry on next tick
+          }
+        }
+
         // ── Deposit events (existing) ─────────────────────────────────────────
         const depositCursor: { txDigest: string; eventSeq: string } | null =
           vault.eventCursor ? JSON.parse(vault.eventCursor) as { txDigest: string; eventSeq: string } : null;

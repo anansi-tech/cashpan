@@ -73,7 +73,7 @@ export async function registerVault(record: Omit<VaultRecord, 'createdAt' | 'age
   await connectDB();
   const VaultModel = getModel();
   const doc = await VaultModel.findOneAndUpdate(
-    { identityKey: record.identityKey },
+    { identityKey: record.identityKey, network: record.network },
     { $set: record },
     { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
   );
