@@ -116,3 +116,11 @@ semantics of an existing field (cost basis, network scoping, etc.), MUST include
 one-time backfill for existing rows in the SAME commit. Adding a network-scoped query
 without backfilling, or cost-basis tracking without seeding existing positions, both
 broke production. New field/semantics → backfill existing data, always.
+
+## Dependency pin (standing)
+`@mysten/sui` is pinned to 2.15.0 deliberately. Coin reads use getCoinsRaw()
+(raw suix_getCoins) because SuiJsonRpcClient.getCoins() returns [] at 2.15.
+Client-class names and transport behavior shift across 2.15↔2.17 and the Suilend
+SDK constrains the range. Do NOT bump casually. Upgrading requires a dedicated
+branch + full money-flow re-verification (fresh clone, devInspect dry-run, real
+$ sweep/topup/redeem round-trip).
