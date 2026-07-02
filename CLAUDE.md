@@ -109,3 +109,10 @@ Everything is driven by three `.env` values — **no code changes needed**:
 **To deploy on testnet with test_usd** (default): run `npm run setup` — it publishes the `test_usd` module, mints tokens to the owner, and writes all three vars.
 
 **To use USDC or Sui Dollar instead**: set the three vars above manually and skip the mint step. The vault, agent, and UI adapt automatically. The `test_usd` module is published but unused.
+
+## Migration rule (standing)
+Any change that adds a required/queried field to a Mongo schema, or changes the
+semantics of an existing field (cost basis, network scoping, etc.), MUST include a
+one-time backfill for existing rows in the SAME commit. Adding a network-scoped query
+without backfilling, or cost-basis tracking without seeding existing positions, both
+broke production. New field/semantics → backfill existing data, always.

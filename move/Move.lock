@@ -4,74 +4,74 @@
 [move]
 version = 4
 
-[pinned.testnet.MoveStdlib]
+[pinned.mainnet.MoveStdlib]
 source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "718ae563a42fb4ba0d055588f81c704dcef58c25" }
-use_environment = "testnet"
+use_environment = "mainnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
 
-[pinned.testnet.MoveStdlib_1]
+[pinned.mainnet.MoveStdlib_1]
 source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "041c5f2bae2fe52079e44b70514333532d69f4e6" }
-use_environment = "testnet"
+use_environment = "mainnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
 
-[pinned.testnet.Pyth]
+[pinned.mainnet.Pyth]
 source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", subdir = "target_chains/sui/contracts", rev = "f272d1208a4d34ad5e65e344946f731819af99f6" }
-use_environment = "testnet"
-manifest_digest = "9942AAB3725BC51DADB046B4440A3D008E554C9286ECC72B3DE5CC0309C0D63D"
+use_environment = "mainnet"
+manifest_digest = "F2C5AF85C4B72C8F6A8132D05DE4F787F4EB80DBFF812331ED65AE599E7DF92A"
 deps = { Sui = "Sui_1", Wormhole = "Wormhole" }
 
-[pinned.testnet.Sui]
+[pinned.mainnet.Sui]
 source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "718ae563a42fb4ba0d055588f81c704dcef58c25" }
-use_environment = "testnet"
-manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D01C"
+use_environment = "mainnet"
+manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
 deps = { MoveStdlib = "MoveStdlib" }
 
-[pinned.testnet.SuiSystem]
+[pinned.mainnet.SuiSystem]
 source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-system", rev = "718ae563a42fb4ba0d055588f81c704dcef58c25" }
-use_environment = "testnet"
-manifest_digest = "F1655B9F9B8ECE67FDBA648266DD75B48852F63BF2515856E822586882D1CA2A"
+use_environment = "mainnet"
+manifest_digest = "CCBB2DE961DACC94644C65D54E808DEF86BC7E9C42A494D5250CC5F99392E069"
 deps = { MoveStdlib = "MoveStdlib", Sui = "Sui" }
 
-[pinned.testnet.Sui_1]
+[pinned.mainnet.Sui_1]
 source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "041c5f2bae2fe52079e44b70514333532d69f4e6" }
-use_environment = "testnet"
-manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D01C"
+use_environment = "mainnet"
+manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
 deps = { MoveStdlib = "MoveStdlib_1" }
 
-[pinned.testnet.Switchboard]
+[pinned.mainnet.Switchboard]
 source = { git = "https://github.com/switchboard-xyz/sui.git", subdir = "on_demand", rev = "c3053f782b40ea5100d3f60d476b4dc55469ff34" }
-use_environment = "testnet"
-manifest_digest = "5745706258F61D6CE210904B3E6AE87A73CE9D31A6F93BE4718C442529332A87"
+use_environment = "mainnet"
+manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
 deps = { std = "MoveStdlib", sui = "Sui" }
 
-[pinned.testnet.Wormhole]
+[pinned.mainnet.Wormhole]
 source = { git = "https://github.com/wormhole-foundation/wormhole.git", subdir = "sui/wormhole", rev = "b71be5cbb9537c4aac8e23e74371affa3825efcd" }
-use_environment = "testnet"
-manifest_digest = "6996F1AB8CD448FFBA142C085C488FE8A46B485E61E38A1891EFA52B30D9C12E"
+use_environment = "mainnet"
+manifest_digest = "0D766A0380B75080707CFA6099AF469A2E502B0D9DC334A9E9983B391C5555D9"
 deps = { Sui = "Sui_1" }
 
-[pinned.testnet.cashpan]
+[pinned.mainnet.cashpan]
 source = { root = true }
-use_environment = "testnet"
-manifest_digest = "C30C3ADA113D58A2BD6D890CB77F11F73FDDDC59C39A608F8430AB19D5C2E678"
+use_environment = "mainnet"
+manifest_digest = "C3D1E5EB13E437D9D4AC448AAA3DC7E9DA8B3F245A51092F31577D5154AF2AA2"
 deps = { std = "MoveStdlib", sui = "Sui", suilend = "suilend" }
 
-[pinned.testnet.liquid_staking]
+[pinned.mainnet.liquid_staking]
 source = { git = "https://github.com/solendprotocol/liquid-staking.git", subdir = "contracts", rev = "49f757384e69065ab082dc2fcf653f4b285a1940" }
-use_environment = "testnet"
-manifest_digest = "5E7C288BBC1CF8C7B1A36EC70D1D39D45703A5397C84D65EFD693E7EDFF41766"
+use_environment = "mainnet"
+manifest_digest = "5088FADDD8E68B81993124941C625140D78354C8DCD372C440055B66B7604874"
 deps = { std = "MoveStdlib", sui = "Sui", sui_system = "SuiSystem" }
 
-[pinned.testnet.sprungsui]
+[pinned.mainnet.sprungsui]
 source = { git = "https://github.com/solendprotocol/suilend.git", subdir = "contracts/sprungsui", rev = "d5ba83a617bb0778b48b0c3b1e77a87be81258ca" }
-use_environment = "testnet"
-manifest_digest = "5745706258F61D6CE210904B3E6AE87A73CE9D31A6F93BE4718C442529332A87"
+use_environment = "mainnet"
+manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
 deps = { std = "MoveStdlib", sui = "Sui" }
 
-[pinned.testnet.suilend]
+[pinned.mainnet.suilend]
 source = { git = "https://github.com/solendprotocol/suilend.git", subdir = "contracts/suilend", rev = "d5ba83a617bb0778b48b0c3b1e77a87be81258ca" }
-use_environment = "testnet"
-manifest_digest = "C16186F0C5938F8EC0391603C47371B9D5DF30C002A9A2832EFA0E8D1C661E89"
+use_environment = "mainnet"
+manifest_digest = "6BCFE0711E0DE51834A168820C7CEAA03149F8E00ADC6BD93BADC4694D7443AD"
 deps = { liquid_staking = "liquid_staking", pyth = "Pyth", sprungsui = "sprungsui", std = "MoveStdlib", sui = "Sui", sui_system = "SuiSystem", switchboard = "Switchboard" }
