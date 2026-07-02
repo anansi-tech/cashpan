@@ -1,10 +1,13 @@
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
-  // Resolve at runtime via Node.js (not Webpack) — @suilend/sdk pulls in
-  // @pythnetwork/pyth-sui-js (CJS) which require()s @mysten/sui (ESM).
-  // Webpack can't cross that boundary; Node.js 22+ handles it natively.
-  serverExternalPackages: ['@mysten/sui', '@suilend/sdk'],
+  // Bundle the full suilend chain through Webpack so it handles all interop:
+  //   - @suilend/sui-fe: `export * from "./lib"` (dir import, invalid in Node ESM)
+  //   - @pythnetwork/pyth-sui-js (CJS): require()s @mysten/sui (ESM)
+  //   - @mysten/sui must also be in transpilePackages so Webpack resolves the
+  //     CJS→ESM require() internally (it can't emit an external require() against
+  //     an ESM-typed package without erroring).
+  transpilePackages: ['@mysten/sui', '@suilend/sdk', '@suilend/sui-fe', '@pythnetwork/pyth-sui-js'],
   // Single-source coin config: derive NEXT_PUBLIC_* from server-side vars
   // so COIN_DECIMALS/COIN_SYMBOL/COIN_TYPE in .env is the only place to set them.
   env: {
