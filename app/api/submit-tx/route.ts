@@ -24,6 +24,7 @@ export async function POST(req: Request) {
       '';
     return NextResponse.json({ digest });
   } catch (err) {
+    console.error('[/api/submit-tx] error:', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
