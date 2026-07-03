@@ -9,7 +9,7 @@
     "start": "next start",
     "agent": "tsx src/agent.ts",
     "setup": "tsx scripts/setup.ts",
-"fund-vault": "tsx scripts/fund-vault.ts",
+    "fund-vault": "tsx scripts/fund-vault.ts",
     "drain": "tsx scripts/drain.ts",
     "deposit": "tsx scripts/deposit.ts",
     "create-vault": "tsx scripts/create-vault.ts",

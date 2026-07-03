@@ -72,7 +72,7 @@ export async function runWatcher(): Promise<WatcherResult> {
     while (hasMore) {
       const { events, nextCursor } = await queryPackageEvents(depositEventType, cursor);
       for (const ev of events) {
-        const vaultId = String(ev.json?.vault_id ?? '');
+        const vaultId = String(ev.contents?.json?.vault_id ?? '');
         if (vaultMap.has(vaultId)) eventsFound++;
       }
       if (nextCursor) await setWatcherCursor(depositEventType, nextCursor);
@@ -95,7 +95,7 @@ export async function runWatcher(): Promise<WatcherResult> {
       const { events, nextCursor } = await queryPackageEvents(rebalanceEventType, cursor);
 
       for (const ev of events) {
-        const json = ev.json;
+        const json = ev.contents?.json;
         if (!json) continue;
         const vaultId = String(json.vault_id ?? '');
         const vault = vaultMap.get(vaultId);

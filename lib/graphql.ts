@@ -187,11 +187,14 @@ export async function fetchVaultJson(vaultId: string): Promise<Record<string, un
 
 // ─── Event querying ────────────────────────────────────────────────────────────
 
+// QuickNode Sui GraphQL schema (differs from Mysten Labs reference):
+//   filter field: `type` (not `eventType`)
+//   event data:   `contents { json }` (not top-level `json`)
+//   tx reference: `transaction { digest }` (not `transactionBlock`)
 export interface GQLEventNode {
-  json: Record<string, unknown> | null;
+  contents: { json: Record<string, unknown> | null } | null;
   timestamp: string | null;
-  type: { repr: string } | null;
-  transactionBlock: { digest: string } | null;
+  transaction: { digest: string } | null;
 }
 
 export async function fetchEventsGQL(
@@ -203,8 +206,8 @@ export async function fetchEventsGQL(
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
-        events(filter: { eventType: "${eventType}" }, last: ${last}) {
-          nodes { json timestamp type { repr } transactionBlock { digest } }
+        events(filter: { type: "${eventType}" }, last: ${last}) {
+          nodes { contents { json } timestamp transaction { digest } }
         }
       }`,
     }),
@@ -233,8 +236,8 @@ export async function queryPackageEvents(
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
-        events(filter: { eventType: "${eventType}" }, first: ${limit}${afterClause}) {
-          nodes { json timestamp type { repr } transactionBlock { digest } }
+        events(filter: { type: "${eventType}" }, first: ${limit}${afterClause}) {
+          nodes { contents { json } timestamp transaction { digest } }
           pageInfo { hasNextPage endCursor }
         }
       }`,

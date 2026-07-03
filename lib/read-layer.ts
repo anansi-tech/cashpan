@@ -136,17 +136,18 @@ export async function getAgentActivity(
 
   const events: ActivityEvent[] = [];
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const eventType = eventTypes[i];
     if (result.status !== 'fulfilled') continue;
     for (const ev of result.value as GQLEventNode[]) {
-      const json = ev.json;
+      const json = ev.contents?.json;
       if (!json) continue;
       if (vaultId && String(json.vault_id ?? '') !== vaultId) continue;
-      const digest = ev.transactionBlock?.digest ?? '';
+      const digest = ev.transaction?.digest ?? '';
       const timestampMs = ev.timestamp ? String(new Date(ev.timestamp).getTime()) : undefined;
-      const evType = ev.type?.repr ?? '';
 
-      if (evType.endsWith('::RebalanceEvent')) {
+      if (eventType.endsWith('::RebalanceEvent')) {
         const direction = Number(json.direction ?? 0);
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
@@ -162,7 +163,7 @@ export async function getAgentActivity(
           timestampMs,
           digest,
         });
-      } else if (evType.endsWith('::WithdrawEvent')) {
+      } else if (eventType.endsWith('::WithdrawEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
@@ -171,7 +172,7 @@ export async function getAgentActivity(
           ? `Agent moved ${display} ${COIN_SYMBOL} to payout address`
           : `Withdrew ${display} ${COIN_SYMBOL} to wallet`;
         events.push({ type: 'withdraw', text, amount, byAgent, to, timestampMs, digest });
-      } else if (evType.endsWith('::SendEvent')) {
+      } else if (eventType.endsWith('::SendEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
@@ -181,7 +182,7 @@ export async function getAgentActivity(
           ? `Agent sent ${display} ${COIN_SYMBOL} to ${toLabel}`
           : `Sent ${display} ${COIN_SYMBOL} to ${toLabel}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
-      } else if (evType.endsWith('::DepositEvent')) {
+      } else if (eventType.endsWith('::DepositEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         events.push({ type: 'deposit', text: `Deposited ${display} ${COIN_SYMBOL}`, amount, timestampMs, digest });
