@@ -8,56 +8,39 @@ const PACKAGE_ID   = process.env.PACKAGE_ID ?? '';
 
 export const dynamic = 'force-dynamic';
 
+async function gql(query: string) {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({ query }),
+  });
+  return res.json();
+}
+
 export async function GET(request: Request) {
   const vault = await resolveVault(request);
-  const vaultId = vault.vaultId;
 
-  const eventTypes = [
-    `${PACKAGE_ID}::vault::RebalanceEvent`,
-    `${PACKAGE_ID}::vault::DepositEvent`,
-    `${PACKAGE_ID}::vault::WithdrawEvent`,
-    `${PACKAGE_ID}::vault::SendEvent`,
-  ];
+  const [eventType, eventFilter, sampleEvents] = await Promise.all([
+    gql('{ __type(name: "Event") { fields { name type { name kind ofType { name } } } } }'),
+    gql('{ __type(name: "EventFilter") { inputFields { name type { name kind ofType { name } } } } }'),
+    gql(`{
+      events(last: 3) {
+        nodes {
+          sendingModule { package { address } name }
+          sender { address }
+          timestamp
+          bcs
+          transaction { digest }
+        }
+      }
+    }`),
+  ]);
 
-  const results: Record<string, unknown> = {
+  return NextResponse.json({
     packageId: PACKAGE_ID,
-    vaultId,
-    graphqlUrl: GRAPHQL_URL ? GRAPHQL_URL.replace(/\/\/[^/]+/, '//***') : '(empty)',
-    authHeaderSet: !!GRPC_TOKEN,
-  };
-
-  for (const eventType of eventTypes) {
-    const shortName = eventType.split('::').pop()!;
-    try {
-      const res = await fetch(GRAPHQL_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-        body: JSON.stringify({
-          query: `{
-            events(filter: { eventType: "${eventType}" }, last: 5) {
-              nodes { json type { repr } transactionBlock { digest } }
-            }
-          }`,
-        }),
-      });
-      const data = await res.json() as {
-        data?: { events?: { nodes?: unknown[] } };
-        errors?: { message: string }[];
-      };
-      const nodes = data.data?.events?.nodes ?? [];
-      results[shortName] = {
-        count: nodes.length,
-        errors: data.errors ?? null,
-        matchingVault: nodes.filter((n) => {
-          const node = n as { json?: Record<string, unknown> };
-          return String(node.json?.vault_id ?? '') === vaultId;
-        }).length,
-        sample: nodes[0] ?? null,
-      };
-    } catch (err) {
-      results[shortName] = { error: (err as Error).message };
-    }
-  }
-
-  return NextResponse.json(results);
+    vaultId: vault.vaultId,
+    EventType_fields: (eventType as { data?: { __type?: { fields?: unknown[] } } }).data?.__type?.fields,
+    EventFilter_fields: (eventFilter as { data?: { __type?: { inputFields?: unknown[] } } }).data?.__type?.inputFields,
+    sampleEvents,
+  });
 }
