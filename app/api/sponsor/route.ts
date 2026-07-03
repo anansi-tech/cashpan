@@ -54,6 +54,7 @@ export async function POST(req: Request) {
     if (data.error) {
       const details = data.error.data?.details;
       const msg = details ? `${data.error.message}: ${details}` : data.error.message;
+      console.error('[/api/sponsor] Shinami error:', msg);
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 

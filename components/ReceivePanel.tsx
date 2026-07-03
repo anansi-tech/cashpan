@@ -83,6 +83,7 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       setDepositState('success');
       refresh();
     } catch (err) {
+      console.error('[deposit]', err);
       const msg = err instanceof Error ? err.message.toLowerCase() : '';
       const friendly = msg.includes('sponsor') ? "Couldn't sponsor the transaction — try again."
         : msg.includes('network') || msg.includes('fetch') ? 'Network issue. Try again.'

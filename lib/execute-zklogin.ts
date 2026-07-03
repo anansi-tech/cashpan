@@ -43,6 +43,7 @@ export async function executeTransaction(tx: Transaction): Promise<{ digest: str
   });
   if (!sponsorRes.ok) {
     const err = await sponsorRes.json() as { error?: string };
+    console.error('[executeTransaction] sponsor failed:', sponsorRes.status, err);
     throw new Error(err.error ?? 'Gas sponsorship failed');
   }
   const sponsored = await sponsorRes.json() as { txBytes: string; signature: string };
@@ -63,6 +64,7 @@ export async function executeTransaction(tx: Transaction): Promise<{ digest: str
   });
   if (!submitRes.ok) {
     const err = await submitRes.json() as { error?: string };
+    console.error('[executeTransaction] submit failed:', submitRes.status, err);
     throw new Error(err.error ?? 'Transaction submission failed');
   }
   return submitRes.json() as Promise<{ digest: string }>;
