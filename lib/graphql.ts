@@ -14,7 +14,6 @@ import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import { SuilendClient, LENDING_MARKET_ID, LENDING_MARKET_TYPE } from '@suilend/sdk/client';
 import { calculateDepositAprPercent } from '@suilend/sdk/utils/simulate';
 import { NETWORK } from './sui';
-import type { WalletCoin } from './brain';
 
 const GRAPHQL_URL  = process.env.SUI_GRAPHQL_URL ?? '';
 const GRPC_TOKEN   = process.env.SUI_GRPC_TOKEN ?? '';
@@ -75,19 +74,14 @@ export async function getLiveAprBps(coinType = COIN_TYPE): Promise<number> {
 
 export interface VaultStateGQL {
   liquidBase: bigint;
-  walletCoins: WalletCoin[];
+  walletBalance: string;
   currentEpoch: bigint;
 }
-
-type CoinObjNode = {
-  address: string;
-  contents?: { json?: Record<string, unknown> | null } | null;
-};
 
 type GQLData = {
   epoch?: { epochId?: string };
   vault?: { asMoveObject?: { contents?: { json?: Record<string, unknown> } } };
-  wallet?: { objects?: { nodes?: CoinObjNode[] } };
+  wallet?: { balance?: { totalBalance?: string } | null };
 };
 
 export async function fetchVaultState(
@@ -105,9 +99,7 @@ export async function fetchVaultState(
           asMoveObject { contents { json } }
         }
         wallet: address(address: "${payoutAddress}") {
-          objects(first: 50, filter: { type: "0x2::coin::Coin<${coinType}>" }) {
-            nodes { address contents { json } }
-          }
+          balance(coinType: "${coinType}") { totalBalance }
         }
       }`,
     }),
@@ -121,12 +113,29 @@ export async function fetchVaultState(
   const currentEpoch = BigInt(epoch?.epochId ?? 0);
   const vaultJson = vault?.asMoveObject?.contents?.json;
   if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
-  const walletCoins: WalletCoin[] = (wallet?.objects?.nodes ?? []).map((n) => ({
-    coinObjectId: n.address,
-    balance: parseCoinBalance(n.contents?.json),
-  }));
+  const walletBalance = wallet?.balance?.totalBalance ?? '0';
 
-  return { liquidBase: readLiquidBase(vaultJson), walletCoins, currentEpoch };
+  return { liquidBase: readLiquidBase(vaultJson), walletBalance, currentEpoch };
+}
+
+export async function fetchWalletBalance(address: string, coinType: string): Promise<string> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        wallet: address(address: "${address}") {
+          balance(coinType: "${coinType}") { totalBalance }
+        }
+      }`,
+    }),
+  });
+  const json = await res.json() as {
+    data?: { wallet?: { balance?: { totalBalance?: string } | null } };
+    errors?: { message: string }[];
+  };
+  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
+  return json.data?.wallet?.balance?.totalBalance ?? '0';
 }
 
 // ─── Minimal vault query (liquid + epoch + payoutAddress, no wallet coins) ────
@@ -254,12 +263,17 @@ export async function queryPackageEvents(
   return { events: nodes, nextCursor };
 }
 
-// ─── Coin objects by type (for mergeCoins in sweep PTBs) ─────────────────────
+// ─── Coin objects by type (supplement — use fetchWalletBalance for display) ───
+
+type CoinObjNode = {
+  address: string;
+  contents?: { json?: Record<string, unknown> | null } | null;
+};
 
 export async function getCoinsByType(
   owner: string,
   coinType: string,
-): Promise<WalletCoin[]> {
+): Promise<{ coinObjectId: string; balance: string }[]> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },

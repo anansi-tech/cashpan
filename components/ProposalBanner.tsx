@@ -71,7 +71,7 @@ function BrainCard({
     try {
       const tx =
         proposal.type === 'add-to-cashpan'
-          ? buildDepositTx(proposal.coinIds, vaultCtx)
+          ? buildDepositTx(BigInt(proposal.balanceBase), vaultCtx)
           : proposal.type === 'topup-from-save'
             ? buildTopupFromBrain(proposal, vaultCtx)
             : buildSweepFromBrain(proposal, vaultCtx);

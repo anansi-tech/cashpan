@@ -9,20 +9,15 @@
 
 import { humanToBase, baseToHuman } from './coin-config';
 import { getBalances } from './read-layer';
-import { getCoinsByType } from './graphql';
+import { fetchWalletBalance } from './graphql';
 import type { Balances } from './read-layer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface WalletCoin {
-  coinObjectId: string;
-  balance: string;
-}
-
 export interface AddToCashPanProposal {
   type: 'add-to-cashpan';
   totalAmountSui: string;
-  coinIds: string[];
+  balanceBase: string;
 }
 
 export interface SweepToSaveProposal {
@@ -47,22 +42,20 @@ export type BrainProposal = AddToCashPanProposal | SweepToSaveProposal | TopupFr
 const MIN_MOVE = humanToBase('0.01');
 
 export function computeProposals(
-  walletCoins: WalletCoin[],
+  walletBalance: string,
   balances: Balances,
   settings: { buffer: string; band: string },
 ): BrainProposal[] {
   const proposals: BrainProposal[] = [];
 
   // 1. Add-to-CashPan: wallet holds COIN_TYPE not yet deposited
-  if (walletCoins.length > 0) {
-    const totalBase = walletCoins.reduce((sum, c) => sum + BigInt(c.balance), 0n);
-    if (totalBase > 0n) {
-      proposals.push({
-        type: 'add-to-cashpan',
-        totalAmountSui: baseToHuman(totalBase),
-        coinIds: walletCoins.map((c) => c.coinObjectId),
-      });
-    }
+  const totalBase = BigInt(walletBalance || '0');
+  if (totalBase > 0n) {
+    proposals.push({
+      type: 'add-to-cashpan',
+      totalAmountSui: baseToHuman(totalBase),
+      balanceBase: walletBalance,
+    });
   }
 
   // 2+3. Rebalance proposals — symmetric deadband both directions.
@@ -108,9 +101,9 @@ export async function computeReadTimeProposals(
   coinType: string,
   settings: { buffer: string; band: string } = { buffer: '50', band: '5' },
 ): Promise<BrainProposal[]> {
-  const [walletCoins, balances] = await Promise.all([
-    getCoinsByType(walletAddress, coinType),
+  const [walletBalance, balances] = await Promise.all([
+    fetchWalletBalance(walletAddress, coinType),
     getBalances(vaultId),
   ]);
-  return computeProposals(walletCoins, balances, settings);
+  return computeProposals(walletBalance, balances, settings);
 }

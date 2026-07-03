@@ -7,7 +7,7 @@
  * Owner verbs are unrestricted on-chain — the confirm tap is the guardrail.
  */
 
-import { Transaction } from '@mysten/sui/transactions';
+import { Transaction, coinWithBalance } from '@mysten/sui/transactions';
 import type { Proposal, SendProposal, WithdrawToMeProposal, SweepProposal, TopupProposal } from './propose';
 import type { SweepToSaveProposal, TopupFromSaveProposal } from './brain';
 import { humanToBase } from './coin-config';
@@ -97,17 +97,14 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
 
 // ─── Brain PTB builders ───────────────────────────────────────────────────────
 
-export function buildDepositTx(coinIds: string[], ctx: VaultTxContext): Transaction {
-  if (coinIds.length === 0) throw new Error('No coins to deposit');
+export function buildDepositTx(balance: bigint, ctx: VaultTxContext): Transaction {
+  if (balance === 0n) throw new Error('Nothing to deposit');
   const tx = new Transaction();
-  const primary = tx.object(coinIds[0]);
-  if (coinIds.length > 1) {
-    tx.mergeCoins(primary, coinIds.slice(1).map((id) => tx.object(id)));
-  }
+  const coin = tx.add(coinWithBalance({ type: ctx.coinType, balance }));
   tx.moveCall({
     target: `${ctx.packageId}::vault::deposit`,
     typeArguments: [ctx.coinType],
-    arguments: [tx.object(ctx.vaultId), primary],
+    arguments: [tx.object(ctx.vaultId), coin],
   });
   return tx;
 }

@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import { getSession } from '@/lib/auth';
 import { executeTransaction } from '@/lib/execute-zklogin';
-import { Transaction } from '@mysten/sui/transactions';
+import { buildDepositTx } from '@/lib/vault-tx';
 import type { VaultTxContext } from '@/lib/vault-tx';
-import type { WalletCoin } from '@/lib/brain';
 import { useVaultData } from './VaultDataProvider';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
@@ -43,24 +42,8 @@ function CopyChip({ value, label }: { value: string; label: string }) {
   );
 }
 
-function buildDepositTx(coins: WalletCoin[], ctx: VaultTxContext): Transaction {
-  const tx = new Transaction();
-  if (coins.length > 1) {
-    tx.mergeCoins(
-      tx.object(coins[0].coinObjectId),
-      coins.slice(1).map((c) => tx.object(c.coinObjectId)),
-    );
-  }
-  tx.moveCall({
-    target: `${ctx.packageId}::vault::deposit`,
-    typeArguments: [ctx.coinType],
-    arguments: [tx.object(ctx.vaultId), tx.object(coins[0].coinObjectId)],
-  });
-  return tx;
-}
-
 export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const { walletCoins, isLoading, refresh } = useVaultData();
+  const { walletBalance, isLoading, refresh } = useVaultData();
   // Read address in useEffect — getSession() reads sessionStorage which is
   // unavailable during SSR/hydration, so calling it at render time always
   // returns null and the QR effect never fires.
@@ -87,12 +70,14 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     });
   }, [address]);
 
+  const totalOwned = BigInt(walletBalance || '0');
+
   const handleDeposit = async () => {
-    if (walletCoins.length === 0) return;
+    if (totalOwned === 0n) return;
     setDepositState('depositing');
     setDepositError('');
     try {
-      const tx = buildDepositTx(walletCoins, vaultCtx);
+      const tx = buildDepositTx(totalOwned, vaultCtx);
       const result = await executeTransaction(tx) as { digest: string };
       setDepositDigest(result.digest ?? '');
       setDepositState('success');
@@ -106,8 +91,6 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       setDepositState('error');
     }
   };
-
-  const totalOwned = walletCoins.reduce((sum, c) => sum + BigInt(c.balance), 0n);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '1.5rem 1.25rem', gap: '1.5rem' }}>
@@ -154,13 +137,13 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)' }}>Checking your wallet…</div>
         )}
 
-        {!isLoading && walletCoins.length === 0 && depositState !== 'success' && (
+        {!isLoading && totalOwned === 0n && depositState !== 'success' && (
           <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
             No {COIN_SYM} found in your wallet yet.
           </div>
         )}
 
-        {!isLoading && walletCoins.length > 0 && depositState !== 'success' && (
+        {!isLoading && totalOwned > 0n && depositState !== 'success' && (
           <>
             <div style={{ fontSize: '0.82rem', color: 'var(--color-savings)', fontWeight: 600 }}>
               {baseToHuman(totalOwned.toString())} {COIN_SYM} available in your wallet

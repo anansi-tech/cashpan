@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import type { Balances, Earnings, ActivityEvent } from '@/lib/read-layer';
-import type { BrainProposal, WalletCoin } from '@/lib/brain';
+import type { BrainProposal } from '@/lib/brain';
 
 export interface Contact {
   label: string;
@@ -20,7 +20,7 @@ export interface AppState {
   balances: Balances | null;
   earnings: Earnings | null;
   activity: ActivityEvent[];
-  walletCoins: WalletCoin[];
+  walletBalance: string;
   proposals: BrainProposal[];
   contacts: Contact[];
   settings: UserSettings;
@@ -53,7 +53,7 @@ export function VaultDataProvider({
     balances: initial?.balances ?? null,
     earnings: initial?.earnings ?? null,
     activity: initial?.activity ?? [],
-    walletCoins: [],
+    walletBalance: '0',
     proposals: [],
     contacts: initial?.contacts ?? [],
     settings: DEFAULT_SETTINGS,

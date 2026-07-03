@@ -46,7 +46,7 @@ export async function GET(): Promise<Response> {
   const activity = activityResult.status === 'fulfilled' ? activityResult.value : [];
   const aprBps = aprResult.status === 'fulfilled' ? aprResult.value : 0;
 
-  const walletCoins = gql?.walletCoins ?? [];
+  const walletBalance = gql?.walletBalance ?? '0';
 
   const balances: Balances | null = gql
     ? {
@@ -69,8 +69,8 @@ export async function GET(): Promise<Response> {
     balances,
     earnings,
     activity,
-    walletCoins,
-    proposals: balances ? computeProposals(walletCoins, balances, settings) : [],
+    walletBalance,
+    proposals: balances ? computeProposals(walletBalance, balances, settings) : [],
     contacts,
     settings,
   });
