@@ -72,9 +72,20 @@ export function VaultDataProvider({
   const refresh = useCallback(() => { void fetchState(); }, [fetchState]);
 
   useEffect(() => {
-    void fetchState();
-    intervalRef.current = setInterval(fetchState, POLL_MS);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    const start = () => {
+      void fetchState();
+      intervalRef.current = setInterval(fetchState, POLL_MS);
+    };
+    const stop = () => {
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') stop(); else start();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    start();
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
   }, [fetchState]);
 
   return (

@@ -12,91 +12,42 @@
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
-import { suiClient } from './sui';
+import { getLiveAprBps, LENDING_MARKET_ID, LENDING_MARKET_TYPE, graphqlClient, fetchVaultBasic, fetchVaultJson, fetchEventsGQL } from './graphql';
+import type { GQLEventNode } from './graphql';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const LENDING_MARKET_ID = process.env.LENDING_MARKET_ID ?? '';
-const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
-const RESERVE_INDEX = Number(process.env.RESERVE_INDEX ?? '7');
 
-// Balance<T> appears as {value: "123"} in some SDK versions, plain string in others.
-function readBalance(field: unknown): bigint {
-  if (field !== null && typeof field === 'object' && 'value' in (field as object)) {
-    return BigInt((field as { value: string }).value);
-  }
-  return BigInt(String(field));
-}
-
-async function fetchSavingsValue(client: ReturnType<typeof suiClient>, vaultId: string): Promise<bigint> {
-  if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !P_TYPE || !COIN_TYPE) return 0n;
+async function fetchSavingsValue(vaultId: string): Promise<bigint> {
+  if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !LENDING_MARKET_TYPE || !COIN_TYPE) return 0n;
   try {
     const tx = new Transaction();
     tx.moveCall({
       target: `${PACKAGE_ID}::vault::savings_balance`,
-      typeArguments: [P_TYPE, COIN_TYPE],
+      typeArguments: [LENDING_MARKET_TYPE, COIN_TYPE],
       arguments: [
         tx.object(vaultId),
         tx.object(VENUE_ID),
         tx.object(LENDING_MARKET_ID),
       ],
     });
-    const result = await client.devInspectTransactionBlock({
-      transactionBlock: tx,
-      sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
+    const result = await graphqlClient().simulateTransaction({
+      transaction: tx,
+      checksEnabled: false,
+      include: { commandResults: true },
     });
-    const bytes = result.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined;
-    if (bytes) return BigInt(bcs.u64().parse(new Uint8Array(bytes)));
+    const bytes = result.commandResults?.[0]?.returnValues?.[0]?.bcs;
+    if (bytes) return BigInt(bcs.u64().parse(bytes));
   } catch {
-    // devInspect failed — no active savings position or env not configured
+    // simulate failed — no active savings position or env not configured
   }
   return 0n;
 }
 
-// ─── Suilend live APR ─────────────────────────────────────────────────────────
+// ─── Suilend live APR — delegated to lib/graphql.ts (SuilendClient) ───────────
 
-function interpolateApr(utils: number[], aprs: number[], utilizationPct: number): number {
-  if (utilizationPct <= utils[0]) return aprs[0];
-  if (utilizationPct >= utils[utils.length - 1]) return aprs[aprs.length - 1];
-  for (let i = 1; i < utils.length; i++) {
-    if (utilizationPct <= utils[i]) {
-      const slope = (aprs[i] - aprs[i - 1]) / (utils[i] - utils[i - 1]);
-      return aprs[i - 1] + slope * (utilizationPct - utils[i - 1]);
-    }
-  }
-  return aprs[aprs.length - 1];
-}
-
-export async function getLiveAprBps(): Promise<number> {
-  if (!LENDING_MARKET_ID) return 0;
-  try {
-    const client = suiClient();
-    const obj = await client.getObject({ id: LENDING_MARKET_ID, options: { showContent: true } });
-    if (obj.data?.content?.dataType !== 'moveObject') return 0;
-    const topFields = obj.data.content.fields as Record<string, unknown>;
-    const reserves = topFields.reserves as unknown[] | undefined;
-    if (!Array.isArray(reserves) || reserves.length <= RESERVE_INDEX) return 0;
-
-    const r = (reserves[RESERVE_INDEX] as Record<string, unknown>).fields as Record<string, unknown>;
-    const ctokenSupply = BigInt(String(r.ctoken_supply ?? 0));
-    const available = BigInt(String(r.available_amount ?? 0));
-    const configEl = ((r.config as Record<string, unknown>)?.fields as Record<string, unknown>)?.element;
-    const cfg = ((configEl as Record<string, unknown>)?.fields ?? {}) as Record<string, unknown>;
-    const spreadFeeBps = Number(cfg.spread_fee_bps ?? 2000);
-    const utils = cfg.interest_rate_utils as number[] ?? [0, 93, 97, 100];
-    const aprs = (cfg.interest_rate_aprs as string[] ?? ['400', '700', '1500', '15000']).map(Number);
-
-    // utilization: ctoken_supply ≈ total deposits; available = unlent portion
-    const borrowed = ctokenSupply > available ? ctokenSupply - available : 0n;
-    const utilizationPct = ctokenSupply > 0n ? Number((borrowed * 100n) / ctokenSupply) : 0;
-    const borrowAprBps = interpolateApr(utils, aprs, utilizationPct);
-    const supplyAprBps = Math.floor(borrowAprBps * (utilizationPct / 100) * (1 - spreadFeeBps / 10000));
-    return supplyAprBps;
-  } catch {
-    return 0;
-  }
-}
+export { getLiveAprBps };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -139,22 +90,14 @@ export interface Config {
 
 // ─── Read functions ────────────────────────────────────────────────────────────
 
+// Exported so /api/state can call it separately alongside fetchVaultState().
+export { fetchSavingsValue };
+
 export async function getBalances(vaultId: string): Promise<Balances> {
-  const client = suiClient();
-
-  const [vaultObj, systemState] = await Promise.all([
-    client.getObject({ id: vaultId, options: { showContent: true } }),
-    client.getLatestSuiSystemState(),
+  const [{ liquid, currentEpoch }, savingsValue] = await Promise.all([
+    fetchVaultBasic(vaultId),
+    fetchSavingsValue(vaultId),
   ]);
-
-  if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-
-  const vf = vaultObj.data.content.fields as Record<string, unknown>;
-  const currentEpoch = BigInt(systemState.epoch);
-  const liquid = readBalance(vf.liquid);
-
-  const savingsValue = await fetchSavingsValue(client, vaultId);
-
   return {
     liquid: liquid.toString(),
     savingsValue: savingsValue.toString(),
@@ -177,7 +120,6 @@ export async function getAgentActivity(
   addressToName: Record<string, string> = {},
 ): Promise<ActivityEvent[]> {
   if (!PACKAGE_ID) return [];
-  const client = suiClient();
 
   const perType = Math.ceil(limit / 4) * 2;
   const eventTypes = [
@@ -188,28 +130,23 @@ export async function getAgentActivity(
   ];
 
   const results = await Promise.allSettled(
-    eventTypes.map((eventType) =>
-      client.queryEvents({
-        query: { MoveEventType: eventType },
-        limit: perType,
-        order: 'descending',
-      }),
-    ),
+    eventTypes.map((eventType) => fetchEventsGQL(eventType, perType)),
   );
 
   const events: ActivityEvent[] = [];
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const eventType = eventTypes[i];
     if (result.status !== 'fulfilled') continue;
-    for (const ev of result.value.data) {
-      const json = ev.parsedJson as Record<string, unknown> | undefined;
+    for (const ev of result.value as GQLEventNode[]) {
+      const json = ev.contents?.json;
       if (!json) continue;
-      // Filter to the resolved vault when specified
       if (vaultId && String(json.vault_id ?? '') !== vaultId) continue;
-      const digest = (ev.id as { txDigest: string })?.txDigest ?? '';
-      const timestampMs = (ev as { timestampMs?: string }).timestampMs;
+      const digest = ev.transaction?.digest ?? '';
+      const timestampMs = ev.timestamp ? String(new Date(ev.timestamp).getTime()) : undefined;
 
-      if (ev.type.endsWith('::RebalanceEvent')) {
+      if (eventType.endsWith('::RebalanceEvent')) {
         const direction = Number(json.direction ?? 0);
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
@@ -225,7 +162,7 @@ export async function getAgentActivity(
           timestampMs,
           digest,
         });
-      } else if (ev.type.endsWith('::WithdrawEvent')) {
+      } else if (eventType.endsWith('::WithdrawEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
@@ -234,7 +171,7 @@ export async function getAgentActivity(
           ? `Agent moved ${display} ${COIN_SYMBOL} to payout address`
           : `Withdrew ${display} ${COIN_SYMBOL} to wallet`;
         events.push({ type: 'withdraw', text, amount, byAgent, to, timestampMs, digest });
-      } else if (ev.type.endsWith('::SendEvent')) {
+      } else if (eventType.endsWith('::SendEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         const byAgent = Boolean(json.by_agent);
@@ -244,7 +181,7 @@ export async function getAgentActivity(
           ? `Agent sent ${display} ${COIN_SYMBOL} to ${toLabel}`
           : `Sent ${display} ${COIN_SYMBOL} to ${toLabel}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
-      } else if (ev.type.endsWith('::DepositEvent')) {
+      } else if (eventType.endsWith('::DepositEvent')) {
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
         events.push({ type: 'deposit', text: `Deposited ${display} ${COIN_SYMBOL}`, amount, timestampMs, digest });
@@ -260,13 +197,7 @@ export async function getConfig(
   vaultId: string,
   userSettings?: { buffer?: string; band?: string },
 ): Promise<Config> {
-  const client = suiClient();
-  const vaultObj = await client.getObject({ id: vaultId, options: { showContent: true } });
-
-  if (vaultObj.data?.content?.dataType !== 'moveObject') throw new Error('Vault not found');
-
-  const vf = vaultObj.data.content.fields as Record<string, unknown>;
-
+  const vf = await fetchVaultJson(vaultId);
   return {
     buffer: userSettings?.buffer ?? '50',
     band: userSettings?.band ?? '5',

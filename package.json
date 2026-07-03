@@ -9,17 +9,20 @@
     "start": "next start",
     "agent": "tsx src/agent.ts",
     "setup": "tsx scripts/setup.ts",
-    "resolve-suilend": "node scripts/resolve-suilend.mjs",
     "fund-vault": "tsx scripts/fund-vault.ts",
     "drain": "tsx scripts/drain.ts",
     "deposit": "tsx scripts/deposit.ts",
     "create-vault": "tsx scripts/create-vault.ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
+  "overrides": {
+    "@mysten/sui": "2.17.0"
+  },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.74",
     "@ai-sdk/react": "^3.0.211",
-    "@mysten/sui": "2.15.0",
+    "@mysten/sui": "2.17.0",
+    "@suilend/sdk": "3.0.4",
     "@tailwindcss/postcss": "^4.3.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.17",

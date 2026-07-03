@@ -1,11 +1,15 @@
 /**
  * Dual-signed transaction execution for zkLogin users.
  * User signs with ephemeral key + ZK proof; Shinami pays gas.
+ *
+ * Network split:
+ *   /api/sponsor  — server builds + resolves objects via QuickNode, calls Shinami
+ *   /api/submit-tx — server submits the fully-signed tx via QuickNode
+ *   This file  — client only: serialize PTB, sign sponsored bytes, pass signatures
  */
 
 import { Transaction } from '@mysten/sui/transactions';
 import { getZkLoginSignature } from '@mysten/sui/zklogin';
-import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import {
   getSession,
   getEphemeralKeypair,
@@ -15,17 +19,7 @@ import {
 } from './auth';
 import type { ZkLoginSignatureInputs } from '@mysten/sui/zklogin';
 
-function getClient(): SuiJsonRpcClient {
-  const network = (process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet') as 'mainnet' | 'testnet';
-  return new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network), network });
-}
-
-/**
- * Build the tx with onlyTransactionKind=true, get Shinami to sponsor it,
- * then sign with the user's ephemeral key + ZK proof, and submit both signatures.
- */
-export async function executeTransaction(tx: Transaction): Promise<unknown> {
-  const client = getClient();
+export async function executeTransaction(tx: Transaction): Promise<{ digest: string }> {
   const session = getSession();
   const ephemeralKey = getEphemeralKeypair();
   const zkProof = getZkProof();
@@ -38,15 +32,14 @@ export async function executeTransaction(tx: Transaction): Promise<unknown> {
   const addressSeed = buildAddressSeed();
   tx.setSender(session.address);
 
-  // Build with onlyTransactionKind=true so the sponsor can wrap it with gas
-  const txBytes = await tx.build({ client, onlyTransactionKind: true });
-  const txBase64 = btoa(String.fromCharCode(...txBytes));
+  // Serialize PTB commands (no network — object resolution happens on the server).
+  const txSerialized = tx.serialize();
 
-  // Ask Shinami to sponsor (adds gas payment, returns full sponsored tx bytes + signature)
+  // Server builds with QuickNode client, resolves objects, calls Shinami for gas.
   const sponsorRes = await fetch('/api/sponsor', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ txBytes: txBase64, sender: session.address }),
+    body: JSON.stringify({ txSerialized, sender: session.address }),
   });
   if (!sponsorRes.ok) {
     const err = await sponsorRes.json() as { error?: string };
@@ -54,17 +47,23 @@ export async function executeTransaction(tx: Transaction): Promise<unknown> {
   }
   const sponsored = await sponsorRes.json() as { txBytes: string; signature: string };
 
-  // Decode the sponsored bytes and sign with ephemeral key
+  // Sign the sponsored bytes (full tx with gas) with the ephemeral key.
   const sponsoredBytes = Uint8Array.from(atob(sponsored.txBytes), (c) => c.charCodeAt(0));
   const { signature: ephemeralSig } = await ephemeralKey.signTransaction(sponsoredBytes);
 
-  // Build the zkLogin signature (combines ZK proof + ephemeral signature)
+  // Combine ZK proof + ephemeral sig into the zkLogin signature.
   const inputs: ZkLoginSignatureInputs = { ...zkProof, addressSeed };
   const zkLoginSig = getZkLoginSignature({ inputs, maxEpoch, userSignature: ephemeralSig });
 
-  return client.executeTransactionBlock({
-    transactionBlock: sponsoredBytes,
-    signature: [zkLoginSig, sponsored.signature],
-    options: { showEffects: true, showEvents: true, showObjectChanges: true },
+  // Server submits both signatures via QuickNode.
+  const submitRes = await fetch('/api/submit-tx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ txBytes: sponsored.txBytes, signatures: [zkLoginSig, sponsored.signature] }),
   });
+  if (!submitRes.ok) {
+    const err = await submitRes.json() as { error?: string };
+    throw new Error(err.error ?? 'Transaction submission failed');
+  }
+  return submitRes.json() as Promise<{ digest: string }>;
 }

@@ -212,9 +212,11 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
         <div style={{ color: 'var(--color-savings)', fontSize: '0.875rem', fontWeight: 700 }}>
           ✓ {successLabel(proposal)}
         </div>
-        <div style={{ color: 'var(--color-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
-          {digest.slice(0, 12)}…{digest.slice(-8)}
-        </div>
+        {digest && (
+          <div style={{ color: 'var(--color-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
+            {digest.slice(0, 12)}…{digest.slice(-8)}
+          </div>
+        )}
       </div>
     );
   }

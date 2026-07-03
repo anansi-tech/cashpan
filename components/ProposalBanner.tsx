@@ -161,7 +161,9 @@ function BrainCard({
             cursor: state === 'pending' ? 'wait' : 'pointer',
           }}
         >
-          {state === 'pending' ? '…' : confirmLabel}
+          {state === 'pending'
+            ? proposal.type === 'add-to-cashpan' ? 'Adding…' : 'Moving…'
+            : confirmLabel}
         </button>
       </div>
     </div>
