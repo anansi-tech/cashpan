@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
+import { Transaction } from '@mysten/sui/transactions';
+import { graphqlClient } from '@/lib/graphql';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const { txBytes, sender } = await req.json() as { txBytes: string; sender: string };
+    // Client serializes the Transaction (PTB commands only, no network needed).
+    // We build it server-side so the GraphQL client can resolve object versions.
+    const { txSerialized, sender } = await req.json() as { txSerialized: string; sender: string };
     const apiKey = process.env.SHINAMI_GAS_STATION_KEY!;
+
+    const tx = Transaction.from(txSerialized);
+    tx.setSender(sender);
+    const kindBytes = await tx.build({ client: graphqlClient(), onlyTransactionKind: true });
+    const txBase64 = Buffer.from(kindBytes).toString('base64');
 
     const res = await fetch('https://api.us1.shinami.com/sui/gas/v1', {
       method: 'POST',
@@ -13,7 +22,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: 'gas_sponsorTransactionBlock',
-        params: [txBytes, sender],
+        params: [txBase64, sender],
         id: 1,
       }),
     });
