@@ -22,7 +22,7 @@ const AUTH_HEADER  = process.env.SUI_GRPC_AUTH_HEADER ?? '';
 const COIN_TYPE    = process.env.COIN_TYPE ?? '';
 
 // Re-export so other modules don't need to import @suilend/sdk directly.
-export { LENDING_MARKET_ID };
+export { LENDING_MARKET_ID, LENDING_MARKET_TYPE };
 
 // ─── Clients ──────────────────────────────────────────────────────────────────
 

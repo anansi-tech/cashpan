@@ -12,21 +12,20 @@
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
-import { getLiveAprBps, LENDING_MARKET_ID, graphqlClient, fetchVaultBasic, fetchVaultJson, fetchEventsGQL } from './graphql';
+import { getLiveAprBps, LENDING_MARKET_ID, LENDING_MARKET_TYPE, graphqlClient, fetchVaultBasic, fetchVaultJson, fetchEventsGQL } from './graphql';
 import type { GQLEventNode } from './graphql';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 async function fetchSavingsValue(vaultId: string): Promise<bigint> {
-  if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !P_TYPE || !COIN_TYPE) return 0n;
+  if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !LENDING_MARKET_TYPE || !COIN_TYPE) return 0n;
   try {
     const tx = new Transaction();
     tx.moveCall({
       target: `${PACKAGE_ID}::vault::savings_balance`,
-      typeArguments: [P_TYPE, COIN_TYPE],
+      typeArguments: [LENDING_MARKET_TYPE, COIN_TYPE],
       arguments: [
         tx.object(vaultId),
         tx.object(VENUE_ID),

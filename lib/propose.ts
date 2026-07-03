@@ -15,7 +15,6 @@ import { fetchSavingsValue } from './read-layer';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const P_TYPE = process.env.P_TYPE ?? '';
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 /** Build a normalised label→address map from the user's saved contacts. */
