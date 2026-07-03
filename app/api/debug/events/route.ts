@@ -20,16 +20,14 @@ async function gql(query: string) {
 export async function GET(request: Request) {
   const vault = await resolveVault(request);
 
-  const [eventType, eventFilter, sampleEvents] = await Promise.all([
-    gql('{ __type(name: "Event") { fields { name type { name kind ofType { name } } } } }'),
-    gql('{ __type(name: "EventFilter") { inputFields { name type { name kind ofType { name } } } } }'),
+  const depositType = `${PACKAGE_ID}::vault::DepositEvent`;
+  const [moveValueFields, sampleEvents] = await Promise.all([
+    gql('{ __type(name: "MoveValue") { fields { name type { name kind } } } }'),
     gql(`{
-      events(last: 3) {
+      events(filter: { type: "${depositType}" }, last: 3) {
         nodes {
-          sendingModule { package { address } name }
-          sender { address }
+          contents
           timestamp
-          bcs
           transaction { digest }
         }
       }
@@ -39,8 +37,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     packageId: PACKAGE_ID,
     vaultId: vault.vaultId,
-    EventType_fields: (eventType as { data?: { __type?: { fields?: unknown[] } } }).data?.__type?.fields,
-    EventFilter_fields: (eventFilter as { data?: { __type?: { inputFields?: unknown[] } } }).data?.__type?.inputFields,
+    MoveValue_fields: (moveValueFields as { data?: { __type?: { fields?: unknown[] } } }).data?.__type?.fields,
     sampleEvents,
   });
 }
