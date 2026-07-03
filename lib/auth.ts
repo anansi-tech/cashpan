@@ -33,17 +33,9 @@ export interface ZkLoginSession {
 }
 
 async function getCurrentEpoch(): Promise<number> {
-  const network = process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet';
-  const url = network === 'testnet'
-    ? 'https://sui-testnet.mystenlabs.com/graphql'
-    : 'https://sui-mainnet.mystenlabs.com/graphql';
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: '{ epoch { epochId } }' }),
-  });
-  const data = await res.json() as { data?: { epoch?: { epochId?: string } } };
-  return Number(data.data?.epoch?.epochId ?? 0);
+  const res = await fetch('/api/epoch');
+  const data = await res.json() as { epochId?: number };
+  return data.epochId ?? 0;
 }
 
 export async function startLogin(): Promise<void> {
