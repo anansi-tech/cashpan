@@ -186,9 +186,11 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
             <div style={{ color: 'var(--color-savings)', fontWeight: 700, fontSize: '0.875rem', marginBottom: '0.25rem' }}>
               ✓ Added to your Spend pocket
             </div>
-            <div style={{ color: 'var(--color-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
-              {depositDigest.slice(0, 12)}…{depositDigest.slice(-8)}
-            </div>
+            {depositDigest && (
+              <div style={{ color: 'var(--color-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
+                {depositDigest.slice(0, 12)}…{depositDigest.slice(-8)}
+              </div>
+            )}
           </div>
         )}
 

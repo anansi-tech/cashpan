@@ -19,7 +19,6 @@ import type { WalletCoin } from './brain';
 const GRAPHQL_URL  = process.env.SUI_GRAPHQL_URL ?? '';
 const GRPC_TOKEN   = process.env.SUI_GRPC_TOKEN ?? '';
 const AUTH_HEADER  = process.env.SUI_GRPC_AUTH_HEADER ?? '';
-const RPC_URL      = process.env.SUI_RPC_URL ?? '';
 const COIN_TYPE    = process.env.COIN_TYPE ?? '';
 
 // Re-export so other modules don't need to import @suilend/sdk directly.
@@ -72,31 +71,6 @@ export async function getLiveAprBps(coinType = COIN_TYPE): Promise<number> {
   }
 }
 
-// ─── Wallet coins via JSON-RPC (QuickNode GraphQL lacks address.coins) ────────
-
-async function coinsViaRPC(owner: string, coinType: string): Promise<WalletCoin[]> {
-  if (!RPC_URL) return [];
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'suix_getCoins',
-      params: [owner, coinType, null, 50],
-    }),
-  });
-  const data = await res.json() as {
-    result?: { data?: { coinObjectId: string; balance: string }[] };
-    error?: { message: string };
-  };
-  if (data.error) throw new Error(`RPC getCoins: ${data.error.message}`);
-  return (data.result?.data ?? []).map((c) => ({
-    coinObjectId: c.coinObjectId,
-    balance: c.balance,
-  }));
-}
-
 // ─── Combined vault state query ───────────────────────────────────────────────
 
 export interface VaultStateGQL {
@@ -105,9 +79,15 @@ export interface VaultStateGQL {
   currentEpoch: bigint;
 }
 
+type CoinObjNode = {
+  address: string;
+  contents?: { json?: Record<string, unknown> | null } | null;
+};
+
 type GQLData = {
   epoch?: { epochId?: string };
   vault?: { asMoveObject?: { contents?: { json?: Record<string, unknown> } } };
+  wallet?: { objects?: { nodes?: CoinObjNode[] } };
 };
 
 export async function fetchVaultState(
@@ -115,30 +95,36 @@ export async function fetchVaultState(
   payoutAddress: string,
   coinType: string,
 ): Promise<VaultStateGQL> {
-  const [gqlRes, walletCoins] = await Promise.all([
-    fetch(GRAPHQL_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-      body: JSON.stringify({
-        query: `{
-          epoch { epochId }
-          vault: object(address: "${vaultId}") {
-            asMoveObject { contents { json } }
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        epoch { epochId }
+        vault: object(address: "${vaultId}") {
+          asMoveObject { contents { json } }
+        }
+        wallet: address(address: "${payoutAddress}") {
+          objects(first: 50, filter: { type: "0x2::coin::Coin<${coinType}>" }) {
+            nodes { address contents { json } }
           }
-        }`,
-      }),
+        }
+      }`,
     }),
-    coinsViaRPC(payoutAddress, coinType),
-  ]);
+  });
 
-  const json = await gqlRes.json() as { data?: GQLData; errors?: { message: string }[] };
+  const json = await res.json() as { data?: GQLData; errors?: { message: string }[] };
   if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
   if (!json.data) throw new Error('GraphQL returned no data');
 
-  const { epoch, vault } = json.data;
+  const { epoch, vault, wallet } = json.data;
   const currentEpoch = BigInt(epoch?.epochId ?? 0);
   const vaultJson = vault?.asMoveObject?.contents?.json;
   if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
+  const walletCoins: WalletCoin[] = (wallet?.objects?.nodes ?? []).map((n) => ({
+    coinObjectId: n.address,
+    balance: parseCoinBalance(n.contents?.json),
+  }));
 
   return { liquidBase: readLiquidBase(vaultJson), walletCoins, currentEpoch };
 }
@@ -274,7 +260,37 @@ export async function getCoinsByType(
   owner: string,
   coinType: string,
 ): Promise<WalletCoin[]> {
-  return coinsViaRPC(owner, coinType);
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        address(address: "${owner}") {
+          objects(first: 50, filter: { type: "0x2::coin::Coin<${coinType}>" }) {
+            nodes { address contents { json } }
+          }
+        }
+      }`,
+    }),
+  });
+  const data = await res.json() as {
+    data?: { address?: { objects?: { nodes?: CoinObjNode[] } } };
+    errors?: { message: string }[];
+  };
+  if (data.errors?.length) throw new Error(`GraphQL coins: ${data.errors[0].message}`);
+  return (data.data?.address?.objects?.nodes ?? []).map((n) => ({
+    coinObjectId: n.address,
+    balance: parseCoinBalance(n.contents?.json),
+  }));
+}
+
+// Coin<T> MoveObject JSON: { balance: "12345" } or { balance: { value: "12345" } }
+function parseCoinBalance(json: Record<string, unknown> | null | undefined): string {
+  const bal = json?.balance;
+  if (typeof bal === 'object' && bal !== null && 'value' in (bal as object)) {
+    return String((bal as { value: string }).value);
+  }
+  return String(bal ?? '0');
 }
 
 // Balance<T> arrives as a plain numeric string in GraphQL JSON (not {value:...}).
