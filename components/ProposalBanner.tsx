@@ -3,8 +3,8 @@
 import { useState, useCallback } from 'react';
 import type { CSSProperties } from 'react';
 import type { BrainProposal } from '@/lib/brain';
-import { buildDepositTx, buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@/lib/vault-tx';
-import { executeTransaction } from '@/lib/execute-zklogin';
+import { buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@/lib/vault-tx';
+import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zklogin';
 import { useVaultData } from './VaultDataProvider';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
@@ -69,13 +69,14 @@ function BrainCard({
     setState('pending');
     setError('');
     try {
-      const tx =
-        proposal.type === 'add-to-cashpan'
-          ? buildDepositTx(BigInt(proposal.balanceBase), vaultCtx)
-          : proposal.type === 'topup-from-save'
-            ? buildTopupFromBrain(proposal, vaultCtx)
-            : buildSweepFromBrain(proposal, vaultCtx);
-      await executeTransaction(tx);
+      if (proposal.type === 'add-to-cashpan') {
+        await executeDepositTransaction(BigInt(proposal.balanceBase), vaultCtx);
+      } else {
+        const tx = proposal.type === 'topup-from-save'
+          ? buildTopupFromBrain(proposal, vaultCtx)
+          : buildSweepFromBrain(proposal, vaultCtx);
+        await executeTransaction(tx);
+      }
       setState('success');
 
       // Update cost-basis immediately rather than waiting for the 5-min cron.

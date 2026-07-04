@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { Transaction } from '@mysten/sui/transactions';
 import { SuiJsonRpcClient, JsonRpcHTTPTransport } from '@mysten/sui/jsonRpc';
 import { NETWORK } from '@/lib/sui';
+import { buildDepositTx } from '@/lib/vault-tx';
 
 // Derive JSON-RPC URL from the GraphQL URL (same QuickNode endpoint, different path).
-// SuiGraphQLClient.core.listCoins() uses address.objects which QuickNode returns empty for
-// some coin types; suix_getCoins JSON-RPC is authoritative and resolves coinWithBalance correctly.
+// suix_getCoins JSON-RPC is authoritative for coin enumeration; GraphQL address.objects
+// returns empty for some coin types on QuickNode.
 const GRAPHQL_URL = process.env.SUI_GRAPHQL_URL ?? '';
 const RPC_URL = GRAPHQL_URL.replace(/\/graphql\/?$/, '');
 const GRPC_TOKEN = process.env.SUI_GRPC_TOKEN ?? '';
@@ -21,19 +22,33 @@ function rpcClient() {
   });
 }
 
+type RegularBody = { txSerialized: string; sender: string };
+type DepositBody = { action: 'deposit'; amountBase: string; sender: string; vaultId: string; packageId: string; coinType: string };
+
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    // Client serializes the Transaction (PTB commands only, no network needed).
-    // We build server-side so the JSON-RPC client can resolve object versions + coin intents.
-    const { txSerialized, sender } = await req.json() as { txSerialized: string; sender: string };
+    const body = await req.json() as RegularBody | DepositBody;
     const apiKey = process.env.SHINAMI_GAS_STATION_KEY!;
 
-    const tx = Transaction.from(txSerialized);
-    tx.setSender(sender);
+    let tx: Transaction;
+
+    if ('action' in body && body.action === 'deposit') {
+      // Server builds deposit PTB — coinWithBalance intent resolved here via suix_getCoins.
+      const { amountBase, sender, vaultId, packageId, coinType } = body;
+      tx = buildDepositTx(BigInt(amountBase), { packageId, coinType, vaultId });
+      tx.setSender(sender);
+    } else {
+      // Client serialized a plain object-ref PTB (sweep/topup/send/withdraw).
+      const { txSerialized, sender } = body as RegularBody;
+      tx = Transaction.from(txSerialized);
+      tx.setSender(sender);
+    }
+
     const kindBytes = await tx.build({ client: rpcClient(), onlyTransactionKind: true });
     const txBase64 = Buffer.from(kindBytes).toString('base64');
+    const sender = body.sender;
 
     const res = await fetch('https://api.us1.shinami.com/sui/gas/v1', {
       method: 'POST',

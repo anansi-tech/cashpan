@@ -97,7 +97,7 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
 
 // ─── Brain PTB builders ───────────────────────────────────────────────────────
 
-export function buildDepositTx(balance: bigint, ctx: VaultTxContext): Transaction {
+export function buildDepositTx(balance: bigint, ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>): Transaction {
   if (balance === 0n) throw new Error('Nothing to deposit');
   const tx = new Transaction();
   const coin = tx.add(coinWithBalance({ type: ctx.coinType, balance }));

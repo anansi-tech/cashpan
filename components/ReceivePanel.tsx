@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSession } from '@/lib/auth';
-import { executeTransaction } from '@/lib/execute-zklogin';
-import { buildDepositTx } from '@/lib/vault-tx';
+import { executeDepositTransaction } from '@/lib/execute-zklogin';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import { useVaultData } from './VaultDataProvider';
 
@@ -77,8 +76,7 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     setDepositState('depositing');
     setDepositError('');
     try {
-      const tx = buildDepositTx(totalOwned, vaultCtx);
-      const result = await executeTransaction(tx) as { digest: string };
+      const result = await executeDepositTransaction(totalOwned, vaultCtx);
       setDepositDigest(result.digest ?? '');
       setDepositState('success');
       refresh();
