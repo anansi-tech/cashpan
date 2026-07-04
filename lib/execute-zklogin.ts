@@ -32,8 +32,9 @@ export async function executeTransaction(tx: Transaction): Promise<{ digest: str
   const addressSeed = buildAddressSeed();
   tx.setSender(session.address);
 
-  // Serialize PTB commands (no network — object resolution happens on the server).
-  const txSerialized = tx.serialize();
+  // Serialize PTB commands as V2 JSON (preserves $Intent commands like coinWithBalance).
+  // tx.serialize() uses the V1 binary format which rejects unresolved intents.
+  const txSerialized = await tx.toJSON();
 
   // Server builds with QuickNode client, resolves objects, calls Shinami for gas.
   const sponsorRes = await fetch('/api/sponsor', {
