@@ -9,3 +9,5 @@ move/build/
 /.next/
 /out/
 *.tsbuildinfo
+.vercel
+.env*
