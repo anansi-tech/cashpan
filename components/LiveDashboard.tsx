@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { CashPanVisual } from './CashPanVisual';
 import { useVaultData } from './VaultDataProvider';
 
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
@@ -159,7 +158,6 @@ export function LiveDashboard() {
   const liquid = displayed.liquid;
   const savingsValue = displayed.savingsValue;
   const total = liquid + savingsValue;
-  const fillPercent = total > 0 ? (savingsValue / total) * 100 : 0;
 
   const accrued = earnings ? Math.max(0, Number(earnings.accrued)) : 0;
   const aprBps = earnings ? Number(earnings.aprBps) : 0;
@@ -216,10 +214,6 @@ export function LiveDashboard() {
         <QuickBtn icon="⇄" label="Move" onClick={() => dispatch('cashpan:show-chat')} />
       </div>
 
-      {/* CashPan visual */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '0.5rem 0' }}>
-        <CashPanVisual fillPercent={fillPercent} label={`$${fmt(savingsValue, 2)} ${COIN_SYM}`} />
-      </div>
     </div>
   );
 }

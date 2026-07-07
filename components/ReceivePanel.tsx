@@ -54,13 +54,14 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   useEffect(() => {
     if (!address) return;
-    import('qrcode').then((mod) => {
-      const QRCode = mod.default ?? mod;
-      (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
-        .toDataURL(address, { width: 200, margin: 2, color: { dark: '#f1f5f9', light: '#0f172a' } })
-        .then(setQrDataUrl)
-        .catch(() => { /* leave placeholder on error */ });
-    });
+    import('qrcode')
+      .then((mod) => {
+        const QRCode = mod.default ?? mod;
+        return (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
+          .toDataURL(address, { width: 200, margin: 2, color: { dark: '#f1f5f9', light: '#0f172a' } });
+      })
+      .then(setQrDataUrl)
+      .catch(console.error);
   }, [address]);
 
   return (

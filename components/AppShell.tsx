@@ -6,8 +6,9 @@ import { ActivityFeed } from './ActivityFeed';
 import { AsidePanel } from './AsidePanel';
 import { ProposalBanner } from './ProposalBanner';
 import { WalletArrivalStrip } from './WalletArrivalStrip';
-import { ContactsPanel } from './ContactsPanel';
+import { SendSheet } from './SendSheet';
 import { SettingsPanel } from './SettingsPanel';
+import { ContactsPanel } from './ContactsPanel';
 import { ReceivePanel } from './ReceivePanel';
 import { BottomNav, type MobileTab } from './BottomNav';
 import { MobileChatBar } from './MobileChatBar';
@@ -17,11 +18,12 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('home');
   const [chatOpen, setChatOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
 
   // Quick-action events from LiveDashboard and other components
   useEffect(() => {
     const onReceive = () => setReceiveOpen(true);
-    const onSend = () => setMobileTab('send');
+    const onSend = () => setSendOpen(true);
     const onChat = () => setChatOpen(true);
     window.addEventListener('cashpan:show-receive', onReceive);
     window.addEventListener('cashpan:show-send', onSend);
@@ -34,9 +36,9 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   }, []);
 
   const handleTabChange = (tab: MobileTab) => {
+    if (tab === 'send') { setSendOpen(true); return; }
     setMobileTab(tab);
     setReceiveOpen(false);
-    // Keep chat panel open across tab changes so messages persist
   };
 
   return (
@@ -79,6 +81,13 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           </div>
         )}
 
+        {/* Send overlay */}
+        {sendOpen && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
+            <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
+          </div>
+        )}
+
         {/* Tab content */}
         <div className="mobile-content">
           {/* Home */}
@@ -93,15 +102,16 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
             <ActivityFeed />
           </div>
 
-          {/* Send (contacts + send flow) */}
-          <div style={{ display: mobileTab === 'send' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-            <ContactsPanel />
-          </div>
-
           {/* Settings */}
-          <div style={{ display: mobileTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
-            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Agent Settings</div>
-            <SettingsPanel />
+          <div style={{ display: mobileTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', gap: '1.5rem' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Agent Settings</div>
+              <SettingsPanel />
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Contacts</div>
+              <ContactsPanel />
+            </div>
           </div>
         </div>
 
