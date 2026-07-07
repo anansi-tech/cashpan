@@ -123,6 +123,59 @@ function CopyRow({ value }: { value: string }) {
   );
 }
 
+const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
+const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
+
+function WalletRow({ address }: { address: string }) {
+  const { walletBalance } = useVaultData();
+  const [copied, setCopied] = useState(false);
+
+  const balance = (Number(walletBalance ?? '0') / 10 ** COIN_DEC).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const shortAddr = `${address.slice(0, 8)}…${address.slice(-6)}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(address).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div style={{ padding: '0.625rem 1rem', borderBottom: '1px solid var(--color-border)' }}>
+      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.4rem' }}>
+        Wallet balance
+      </div>
+      <button
+        onClick={copy}
+        title={address}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          width: '100%', background: 'rgba(255,255,255,0.03)',
+          border: '1px solid var(--color-border)', borderRadius: '0.5rem',
+          padding: '0.5rem 0.625rem', cursor: 'pointer', textAlign: 'left', gap: '0.5rem',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.85rem', color: 'var(--color-text)' }}>
+            ${balance} {COIN_SYM}
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--color-muted)', marginTop: '0.1rem' }}>
+            {shortAddr}
+          </div>
+        </div>
+        <span style={{ color: copied ? 'var(--color-savings)' : 'var(--color-muted)', flexShrink: 0, fontSize: '0.85rem', transition: 'color 0.15s' }}>
+          {copied ? '✓' : '⎘'}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 export function AccountMenu({ address, vaultId }: { address: string; vaultId: string }) {
   const { signOut } = useAuth();
   const [open, setOpen] = useState(false);
@@ -199,6 +252,9 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
               </div>
             )}
           </div>
+
+          {/* Wallet balance + address */}
+          <WalletRow address={address} />
 
           {/* Sign out */}
           <button
