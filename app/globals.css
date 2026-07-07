@@ -58,14 +58,13 @@
   height: 100vh;
 }
 
-/* ── Desktop shell (two-column grid, centered at max 1200px) ──────────────── */
+/* ── Desktop shell (three-column command center) ──────────────────────────── */
 .shell-desktop {
   display: grid;
-  grid-template-columns: 380px 1fr;
-  column-gap: 40px;
-  max-width: 1200px;
+  grid-template-columns: 380px 1fr 420px;
+  column-gap: 0;
+  max-width: none;
   width: 100%;
-  align-self: center;
   flex: 1;
   overflow: hidden;
   min-height: 0;
@@ -164,7 +163,7 @@ body::-webkit-scrollbar {
   }
 }
 
-/* ── Desktop (≥ 1024px): two-column grid ─────────────────────────────────── */
+/* ── Desktop (≥ 1024px): three-column command center ─────────────────────── */
 @media (min-width: 1024px) {
   .shell-desktop {
     display: grid !important;
@@ -172,5 +171,12 @@ body::-webkit-scrollbar {
 
   .shell-mobile {
     display: none !important;
+  }
+}
+
+/* Mid-size desktops: narrower rails so chat keeps ≥400px */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .shell-desktop {
+    grid-template-columns: 320px 1fr 340px;
   }
 }

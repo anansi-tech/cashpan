@@ -60,7 +60,7 @@ export default async function Page() {
       <VaultDataProvider initial={{ balances, earnings, activity }}>
         {/* Header — border spans full width, content centered at 1200px */}
         <header style={{ borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem', maxWidth: 1200, margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
               <span style={{ fontSize: '1.15rem' }}>🍳</span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-savings)', letterSpacing: '-0.02em' }}>

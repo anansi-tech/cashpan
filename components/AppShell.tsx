@@ -64,24 +64,27 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       {/* ── Desktop layout ≥1024px ────────────────────────────────────────────── */}
       <div className="shell-desktop">
 
-        {/* Left col: dashboard summary + chat */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--color-border)' }}>
-          {/* Dashboard — natural height, no internal scroll */}
-          <div style={{ flexShrink: 0, padding: '1.25rem 1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: 0 }}>
-            <WalletArrivalStrip vaultCtx={vaultCtx} />
-            <ProposalBanner vaultCtx={vaultCtx} />
-            <LiveDashboard />
-          </div>
-          {/* Chat fills remaining height */}
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border)' }}>
-            <ChatPanel vaultCtx={vaultCtx} />
-          </div>
+        {/* Left rail: money */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '1.75rem 1.5rem', gap: '1.25rem', borderRight: '1px solid var(--color-border)' }}>
+          <WalletArrivalStrip vaultCtx={vaultCtx} />
+          <ProposalBanner vaultCtx={vaultCtx} />
+          <LiveDashboard />
         </div>
 
-        {/* Right col: activity feed, internal scroll */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
-            <ActivityFeed />
+        {/* Center: chat hero */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+          {/* Panel header — desktop only */}
+          <div style={{ padding: '1rem 2rem', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
+            <span style={{ fontSize: '0.9375rem' }}>💬</span>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)' }}>Money Talks</span>
+          </div>
+          <ChatPanel vaultCtx={vaultCtx} />
+        </div>
+
+        {/* Right rail: activity */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: '1px solid var(--color-border)' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1.75rem 1.5rem' }}>
+            <ActivityFeed flush />
           </div>
         </div>
       </div>
