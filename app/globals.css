@@ -58,13 +58,10 @@
   height: 100vh;
 }
 
-/* ── Desktop shell (two-column grid, centered at max 1100px) ──────────────── */
+/* ── Desktop shell (two-column grid) ──────────────────────────────────────── */
 .shell-desktop {
   display: grid;
-  grid-template-columns: 380px 1fr;
-  max-width: 1100px;
-  width: 100%;
-  align-self: center;   /* centers the grid in the flex-column page-root */
+  grid-template-columns: 380px minmax(0, 680px);
   flex: 1;
   overflow: hidden;
   min-height: 0;
