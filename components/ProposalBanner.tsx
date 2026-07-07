@@ -28,7 +28,8 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     setDismissed((prev) => new Set([...prev, key]));
   }, []);
 
-  const visible = proposals.filter((p) => !dismissed.has(proposalKey(p)));
+  // add-to-cashpan is handled by WalletArrivalStrip; only show rebalance proposals here
+  const visible = proposals.filter((p) => !dismissed.has(proposalKey(p)) && p.type !== 'add-to-cashpan');
   if (visible.length === 0) return null;
 
   return (

@@ -28,6 +28,10 @@
   }
 }
 
+@keyframes arrival-out {
+  to { opacity: 0; transform: translateY(-6px); height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+}
+
 @keyframes savings-glow {
   0%, 100% { border-color: rgba(16, 185, 129, 0.22); box-shadow: none; }
   50%       { border-color: rgba(16, 185, 129, 0.4);  box-shadow: 0 0 18px rgba(16, 185, 129, 0.08); }

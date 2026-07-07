@@ -2,16 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { getSession } from '@/lib/auth';
-import { executeDepositTransaction } from '@/lib/execute-zklogin';
+import { useDeposit } from '@/lib/use-deposit';
 import type { VaultTxContext } from '@/lib/vault-tx';
-import { useVaultData } from './VaultDataProvider';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
 
-function baseToHuman(base: string): string {
-  const n = Number(base) / 10 ** COIN_DEC;
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function baseToHuman(base: bigint): string {
+  return (Number(base) / 10 ** COIN_DEC).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function CopyChip({ value, label }: { value: string; label: string }) {
@@ -42,22 +43,15 @@ function CopyChip({ value, label }: { value: string; label: string }) {
 }
 
 export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const { walletBalance, isLoading, refresh } = useVaultData();
-  // Read address in useEffect — getSession() reads sessionStorage which is
-  // unavailable during SSR/hydration, so calling it at render time always
-  // returns null and the QR effect never fires.
+  const { totalOwned, depositedAmount, state: depositState, error: depositError, deposit: handleDeposit } = useDeposit(vaultCtx);
   const [address, setAddress] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [depositState, setDepositState] = useState<'idle' | 'depositing' | 'success' | 'error'>('idle');
-  const [depositError, setDepositError] = useState('');
-  const [depositDigest, setDepositDigest] = useState('');
 
   useEffect(() => {
     const session = getSession();
     setAddress(session?.address ?? '');
   }, []);
 
-  // Generate QR code once address is known
   useEffect(() => {
     if (!address) return;
     import('qrcode').then((mod) => {
@@ -65,31 +59,9 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
         .toDataURL(address, { width: 200, margin: 2, color: { dark: '#f1f5f9', light: '#0f172a' } })
         .then(setQrDataUrl)
-        .catch(() => { /* leave placeholder visible on error */ });
+        .catch(() => { /* leave placeholder on error */ });
     });
   }, [address]);
-
-  const totalOwned = BigInt(walletBalance || '0');
-
-  const handleDeposit = async () => {
-    if (totalOwned === 0n) return;
-    setDepositState('depositing');
-    setDepositError('');
-    try {
-      const result = await executeDepositTransaction(totalOwned, vaultCtx);
-      setDepositDigest(result.digest ?? '');
-      setDepositState('success');
-      refresh();
-    } catch (err) {
-      console.error('[deposit]', err);
-      const msg = err instanceof Error ? err.message.toLowerCase() : '';
-      const friendly = msg.includes('sponsor') ? "Couldn't sponsor the transaction — try again."
-        : msg.includes('network') || msg.includes('fetch') ? 'Network issue. Try again.'
-        : 'Deposit failed. Please try again.';
-      setDepositError(friendly);
-      setDepositState('error');
-    }
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '1.5rem 1.25rem', gap: '1.5rem' }}>
@@ -97,21 +69,14 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       {/* Address + QR */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
         {qrDataUrl ? (
-          <img
-            src={qrDataUrl}
-            alt="Your CashPan address QR code"
-            width={180}
-            height={180}
-            style={{ borderRadius: '0.75rem', border: '1px solid var(--color-border)' }}
-          />
+          <img src={qrDataUrl} alt="Your CashPan address QR code" width={180} height={180}
+            style={{ borderRadius: '0.75rem', border: '1px solid var(--color-border)' }} />
         ) : (
           <div style={{ width: 180, height: 180, background: 'rgba(255,255,255,0.04)', borderRadius: '0.75rem', border: '1px solid var(--color-border)' }} />
         )}
 
         <div style={{ textAlign: 'center' }}>
-          <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>
-            Your address
-          </div>
+          <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem' }}>Your address</div>
           <div style={{ color: 'var(--color-muted)', fontSize: '0.78rem', lineHeight: 1.5 }}>
             Share this to receive {COIN_SYM}. Coins sent here land in your wallet.
           </div>
@@ -120,32 +85,25 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
         {address && <CopyChip value={address} label="Address" />}
       </div>
 
-      {/* Divider */}
       <div style={{ height: '1px', background: 'var(--color-border)' }} />
 
       {/* Add to CashPan */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--color-text)' }}>
-          Add to CashPan
-        </div>
+        <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--color-text)' }}>Add to CashPan</div>
         <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)', lineHeight: 1.55 }}>
-          If you've received {COIN_SYM} to your address, tap below to move it into your Spend pocket.
+          If you&apos;ve received {COIN_SYM} to your address, tap below to move it into your Spend pocket.
         </div>
 
-        {isLoading && (
-          <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)' }}>Checking your wallet…</div>
-        )}
-
-        {!isLoading && totalOwned === 0n && depositState !== 'success' && (
+        {totalOwned === 0n && depositState !== 'success' && (
           <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>
             No {COIN_SYM} found in your wallet yet.
           </div>
         )}
 
-        {!isLoading && totalOwned > 0n && depositState !== 'success' && (
+        {totalOwned > 0n && depositState !== 'success' && (
           <>
             <div style={{ fontSize: '0.82rem', color: 'var(--color-savings)', fontWeight: 600 }}>
-              {baseToHuman(totalOwned.toString())} {COIN_SYM} available in your wallet
+              {baseToHuman(totalOwned)} {COIN_SYM} available in your wallet
             </div>
             <button
               onClick={handleDeposit}
@@ -158,33 +116,19 @@ export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
                 minHeight: '44px',
               }}
             >
-              {depositState === 'depositing' ? 'Adding to CashPan…' : `Add ${baseToHuman(totalOwned.toString())} ${COIN_SYM} to Spend`}
+              {depositState === 'depositing' ? 'Adding to CashPan…' : `Add ${baseToHuman(totalOwned)} ${COIN_SYM} to Spend`}
             </button>
+            {depositState === 'error' && (
+              <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)' }}>{depositError}</div>
+            )}
           </>
         )}
 
         {depositState === 'success' && (
           <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '0.625rem', padding: '0.75rem 1rem' }}>
             <div style={{ color: 'var(--color-savings)', fontWeight: 700, fontSize: '0.875rem', marginBottom: '0.25rem' }}>
-              ✓ Added to your Spend pocket
+              ✓ Added ${baseToHuman(depositedAmount)} to your Spend pocket
             </div>
-            {depositDigest && (
-              <div style={{ color: 'var(--color-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
-                {depositDigest.slice(0, 12)}…{depositDigest.slice(-8)}
-              </div>
-            )}
-          </div>
-        )}
-
-        {depositState === 'error' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)' }}>{depositError}</div>
-            <button
-              onClick={handleDeposit}
-              style={{ background: 'var(--color-savings)', color: '#0a0f1e', border: 'none', borderRadius: '0.625rem', padding: '0.625rem', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
-            >
-              Retry
-            </button>
           </div>
         )}
       </div>

@@ -12,6 +12,7 @@ import { SignIn } from '@/components/SignIn';
 import { ProvisionVault } from '@/components/ProvisionVault';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { ProposalBanner } from '@/components/ProposalBanner';
+import { WalletArrivalStrip } from '@/components/WalletArrivalStrip';
 import { VaultDataProvider } from '@/components/VaultDataProvider';
 import { AccountMenu } from '@/components/AccountMenu';
 
@@ -130,6 +131,7 @@ export default async function Page() {
               gap: '0',
             }}
           >
+            <WalletArrivalStrip vaultCtx={vaultCtx} />
             <ProposalBanner vaultCtx={vaultCtx} />
             <LiveDashboard />
             <ActivityFeed />
