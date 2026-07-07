@@ -58,22 +58,23 @@ export default async function Page() {
       <OnboardingModal />
 
       <VaultDataProvider initial={{ balances, earnings, activity }}>
-        {/* Header */}
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-            <span style={{ fontSize: '1.15rem' }}>🍳</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-savings)', letterSpacing: '-0.02em' }}>
-              CashPan
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            {/* Network indicator — epoch removed per §5 */}
-            <div className="epoch-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--color-savings)', display: 'inline-block', boxShadow: '0 0 8px var(--color-savings)' }} />
-              <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>Sui {suiNetwork()}</span>
+        {/* Header — border spans full width, content centered at 1200px */}
+        <header style={{ borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem', maxWidth: 1200, margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+              <span style={{ fontSize: '1.15rem' }}>🍳</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-savings)', letterSpacing: '-0.02em' }}>
+                CashPan
+              </span>
             </div>
-            <AccountMenu address={vault.payoutAddress} vaultId={vault.vaultId} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div className="epoch-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--color-savings)', display: 'inline-block', boxShadow: '0 0 8px var(--color-savings)' }} />
+                <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>Sui {suiNetwork()}</span>
+              </div>
+              <AccountMenu address={vault.payoutAddress} vaultId={vault.vaultId} />
+            </div>
           </div>
         </header>
 

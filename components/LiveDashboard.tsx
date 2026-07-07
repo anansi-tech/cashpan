@@ -91,16 +91,16 @@ function PocketRow({
       <span style={{ color: 'var(--color-muted)', fontSize: '0.825rem', fontWeight: 600, minWidth: '3.5rem' }}>
         {label}
       </span>
-      <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)' }}>
+      <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
         ${fmtLocale(amountBase)} {COIN_SYM}
       </span>
       {aprChip && (
         <span style={{
-          fontSize: '0.7rem', fontWeight: 700,
+          fontSize: '0.625rem', fontWeight: 700,
           color: 'var(--color-savings)', background: 'rgba(16,185,129,0.12)',
           border: '1px solid rgba(16,185,129,0.25)',
-          borderRadius: '999px', padding: '0.15rem 0.55rem',
-          whiteSpace: 'nowrap',
+          borderRadius: '999px', padding: '0.0625rem 0.375rem',
+          whiteSpace: 'nowrap', flexShrink: 0,
         }}>
           {aprChip}
         </span>
