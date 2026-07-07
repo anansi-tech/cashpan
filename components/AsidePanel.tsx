@@ -36,11 +36,18 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
 export function AsidePanel({ vaultCtx, onRefresh }: { vaultCtx: VaultTxContext; onRefresh?: () => void }) {
   const [tab, setTab] = useState<TabId>('chat');
 
-  // Listen for empty-state CTA → switch to Receive tab
   useEffect(() => {
-    const handler = () => setTab('receive');
-    window.addEventListener('cashpan:show-receive', handler);
-    return () => window.removeEventListener('cashpan:show-receive', handler);
+    const onReceive = () => setTab('receive');
+    const onSend = () => setTab('contacts');
+    const onChat = () => setTab('chat');
+    window.addEventListener('cashpan:show-receive', onReceive);
+    window.addEventListener('cashpan:show-send', onSend);
+    window.addEventListener('cashpan:show-chat', onChat);
+    return () => {
+      window.removeEventListener('cashpan:show-receive', onReceive);
+      window.removeEventListener('cashpan:show-send', onSend);
+      window.removeEventListener('cashpan:show-chat', onChat);
+    };
   }, []);
 
   return (
