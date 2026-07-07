@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { LiveDashboard } from './LiveDashboard';
 import { ActivityFeed } from './ActivityFeed';
-import { AsidePanel } from './AsidePanel';
+import { ChatPanel } from './ChatPanel';
 import { ProposalBanner } from './ProposalBanner';
 import { WalletArrivalStrip } from './WalletArrivalStrip';
 import { SendSheet } from './SendSheet';
@@ -20,7 +20,6 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
 
-  // Quick-action events from LiveDashboard and other components
   useEffect(() => {
     const onReceive = () => setReceiveOpen(true);
     const onSend = () => setSendOpen(true);
@@ -43,55 +42,55 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   return (
     <>
-      {/* ── Desktop layout (hidden on mobile via CSS) ─────────────────────────── */}
+      {/* ── Overlays — position:fixed, work on both desktop and mobile ─────────── */}
+      {receiveOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Receive</span>
+            <button onClick={() => setReceiveOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+          </div>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <ReceivePanel vaultCtx={vaultCtx} />
+          </div>
+        </div>
+      )}
+
+      {sendOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
+          <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
+        </div>
+      )}
+
+      {/* ── Desktop layout ≥1024px ────────────────────────────────────────────── */}
       <div className="shell-desktop">
-        <main
-          style={{
-            padding: '1.25rem 1.5rem',
-            overflowY: 'auto',
-            borderRight: '1px solid var(--color-border)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 0,
-          }}
-        >
-          <WalletArrivalStrip vaultCtx={vaultCtx} />
-          <ProposalBanner vaultCtx={vaultCtx} />
-          <LiveDashboard />
-          <ActivityFeed />
-        </main>
-        <aside style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-          <AsidePanel vaultCtx={vaultCtx} />
-        </aside>
+
+        {/* Left col: dashboard summary + chat */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--color-border)' }}>
+          {/* Dashboard — natural height, no internal scroll */}
+          <div style={{ flexShrink: 0, padding: '1.25rem 1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <WalletArrivalStrip vaultCtx={vaultCtx} />
+            <ProposalBanner vaultCtx={vaultCtx} />
+            <LiveDashboard />
+          </div>
+          {/* Chat fills remaining height */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border)' }}>
+            <ChatPanel vaultCtx={vaultCtx} />
+          </div>
+        </div>
+
+        {/* Right col: activity feed, internal scroll */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+            <ActivityFeed />
+          </div>
+        </div>
       </div>
 
-      {/* ── Mobile layout (hidden on desktop via CSS) ─────────────────────────── */}
+      {/* ── Mobile layout <1024px ─────────────────────────────────────────────── */}
       <div className="shell-mobile">
-
-        {/* Receive overlay */}
-        {receiveOpen && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Receive</span>
-              <button onClick={() => setReceiveOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-            </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <ReceivePanel vaultCtx={vaultCtx} />
-            </div>
-          </div>
-        )}
-
-        {/* Send overlay */}
-        {sendOpen && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
-            <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
-          </div>
-        )}
-
-        {/* Tab content */}
         <div className="mobile-content">
           {/* Home */}
-          <div style={{ display: mobileTab === 'home' ? 'flex' : 'none', flexDirection: 'column', gap: '0', padding: '1rem', overflowY: 'auto', flex: 1 }}>
+          <div style={{ display: mobileTab === 'home' ? 'flex' : 'none', flexDirection: 'column', gap: 0, padding: '1rem', overflowY: 'auto', flex: 1 }}>
             <WalletArrivalStrip vaultCtx={vaultCtx} />
             <ProposalBanner vaultCtx={vaultCtx} />
             <LiveDashboard />
@@ -102,7 +101,7 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
             <ActivityFeed />
           </div>
 
-          {/* Settings */}
+          {/* Settings + Contacts */}
           <div style={{ display: mobileTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', gap: '1.5rem' }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Agent Settings</div>
@@ -115,9 +114,7 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           </div>
         </div>
 
-        {/* Persistent chat bar above bottom nav */}
         <MobileChatBar open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} vaultCtx={vaultCtx} />
-
         <BottomNav active={mobileTab} onChange={handleTabChange} />
       </div>
     </>
