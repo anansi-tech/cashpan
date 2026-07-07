@@ -163,7 +163,7 @@ function FeedRow({ ev, index, total, onTap }: { ev: ActivityEvent; index: number
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function ActivityFeed() {
+export function ActivityFeed({ flush }: { flush?: boolean }) {
   const { activity: events } = useVaultData();
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [expanded, setExpanded] = useState(false);
@@ -189,7 +189,7 @@ export function ActivityFeed() {
     <>
       {detail && <DetailDrawer ev={detail} onClose={() => setDetail(null)} />}
 
-      <div style={{ display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', borderTop: flush ? 'none' : '1px solid var(--color-border)', paddingTop: flush ? 0 : '1.25rem', marginTop: flush ? 0 : '0.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
           <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-muted)', fontWeight: 600 }}>
             Agent Activity
