@@ -78,9 +78,9 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           </div>
         </div>
 
-        {/* Right col: activity feed, internal scroll */}
+        {/* Right col: activity feed, internal scroll, content capped at 680px */}
         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', maxWidth: '680px' }}>
             <ActivityFeed />
           </div>
         </div>

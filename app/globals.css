@@ -61,7 +61,7 @@
 /* ── Desktop shell (two-column grid) ──────────────────────────────────────── */
 .shell-desktop {
   display: grid;
-  grid-template-columns: 380px minmax(0, 680px);
+  grid-template-columns: 380px 1fr;
   flex: 1;
   overflow: hidden;
   min-height: 0;
