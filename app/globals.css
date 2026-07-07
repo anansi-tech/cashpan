@@ -28,6 +28,10 @@
   }
 }
 
+@keyframes arrival-out {
+  to { opacity: 0; transform: translateY(-6px); height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+}
+
 @keyframes savings-glow {
   0%, 100% { border-color: rgba(16, 185, 129, 0.22); box-shadow: none; }
   50%       { border-color: rgba(16, 185, 129, 0.4);  box-shadow: 0 0 18px rgba(16, 185, 129, 0.08); }
@@ -45,7 +49,34 @@
   height: 100vh;
 }
 
-/* ── Two-column dashboard ─────────────────────────────────────────────────── */
+/* ── Desktop shell (two-column grid) ──────────────────────────────────────── */
+.shell-desktop {
+  display: grid;
+  grid-template-columns: 1fr 480px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Mobile shell (full-width, bottom nav) ────────────────────────────────── */
+.shell-mobile {
+  display: none; /* shown on small screens below */
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+}
+
+.mobile-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── Two-column dashboard (legacy class kept for any residual refs) ─────────── */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 480px;
@@ -81,75 +112,50 @@ body {
   height: 100%;
 }
 
-/* ── Tablet (≤ 900px): stack columns, allow page scroll ──────────────────── */
-@media (max-width: 900px) {
+/* ── Mobile (< 768px): bottom-nav layout ─────────────────────────────────── */
+@media (max-width: 767px) {
   html, body {
-    height: auto;
+    height: 100%;
+    overflow: hidden;
   }
 
   .page-root {
-    overflow: auto !important;
-    height: auto !important;
-    min-height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
   }
 
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-    overflow: visible;
-  }
-
-  .dashboard-grid > aside {
-    height: 65vh;
-    min-height: 500px;
-    border-top: 1px solid var(--color-border);
-    border-right: none !important;
-  }
-
-  .dashboard-grid > main {
-    border-right: none !important;
-  }
-}
-
-/* ── Phone (≤ 640px): compact layout ─────────────────────────────────────── */
-@media (max-width: 640px) {
-  .dashboard-grid > main {
-    padding: 0.875rem !important;
-  }
-
-  /* Stats strip: collapse to 2×2 grid, hide dividers */
-  .stats-row {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-    padding: 0.75rem !important;
-  }
-
-  .stats-divider {
+  .shell-desktop {
     display: none !important;
   }
 
-  /* Pocket cards: slightly tighter padding */
-  .pocket-cards .pocket-card {
-    padding: 1rem 1rem !important;
+  .shell-mobile {
+    display: flex !important;
   }
 
-  .pocket-cards .pocket-number {
-    font-size: 1.4rem !important;
-  }
-
-  /* Header: hide the "Sui testnet · epoch N" badge to save space */
+  /* Header: hide network badge to save space */
   .epoch-badge {
     display: none;
   }
 
-  /* Confirm card: full width on phone instead of capped at 340px */
+  /* Confirm card: full width */
   .confirm-card {
     max-width: 100% !important;
   }
 
-  /* Chat input: larger send button tap target */
+  /* Chat send button: larger tap target */
   .chat-send-btn {
     width: 2.5rem !important;
     height: 2.5rem !important;
+  }
+}
+
+/* ── Desktop (≥ 768px): keep two-column grid ──────────────────────────────── */
+@media (min-width: 768px) {
+  .shell-desktop {
+    display: grid !important;
+  }
+
+  .shell-mobile {
+    display: none !important;
   }
 }

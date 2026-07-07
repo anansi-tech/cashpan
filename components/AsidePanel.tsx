@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import { ChatPanel } from './ChatPanel';
 import { ContactsPanel } from './ContactsPanel';
 import { ReceivePanel } from './ReceivePanel';
+import { SendSheet } from './SendSheet';
 import type { VaultTxContext } from '@/lib/vault-tx';
 
-type TabId = 'chat' | 'contacts' | 'receive';
+type TabId = 'chat' | 'contacts' | 'receive' | 'send';
 
 function Tab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
@@ -36,11 +37,18 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
 export function AsidePanel({ vaultCtx, onRefresh }: { vaultCtx: VaultTxContext; onRefresh?: () => void }) {
   const [tab, setTab] = useState<TabId>('chat');
 
-  // Listen for empty-state CTA → switch to Receive tab
   useEffect(() => {
-    const handler = () => setTab('receive');
-    window.addEventListener('cashpan:show-receive', handler);
-    return () => window.removeEventListener('cashpan:show-receive', handler);
+    const onReceive = () => setTab('receive');
+    const onSend = () => setTab('send');
+    const onChat = () => setTab('chat');
+    window.addEventListener('cashpan:show-receive', onReceive);
+    window.addEventListener('cashpan:show-send', onSend);
+    window.addEventListener('cashpan:show-chat', onChat);
+    return () => {
+      window.removeEventListener('cashpan:show-receive', onReceive);
+      window.removeEventListener('cashpan:show-send', onSend);
+      window.removeEventListener('cashpan:show-chat', onChat);
+    };
   }, []);
 
   return (
@@ -67,6 +75,9 @@ export function AsidePanel({ vaultCtx, onRefresh }: { vaultCtx: VaultTxContext; 
       </div>
       <div style={{ flex: 1, overflow: 'hidden', display: tab === 'contacts' ? 'flex' : 'none', flexDirection: 'column' }}>
         <ContactsPanel />
+      </div>
+      <div style={{ flex: 1, overflow: 'hidden', display: tab === 'send' ? 'flex' : 'none', flexDirection: 'column' }}>
+        <SendSheet vaultCtx={vaultCtx} onClose={() => setTab('chat')} />
       </div>
     </div>
   );
