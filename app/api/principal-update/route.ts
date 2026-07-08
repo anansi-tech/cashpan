@@ -27,6 +27,9 @@ export async function POST(req: Request): Promise<Response> {
       if (valueBeforeWithdraw > 0n) {
         const reduction = (current * amount) / valueBeforeWithdraw;
         next = current > reduction ? current - reduction : 0n;
+        // Clamp: basis can never exceed post-tx savings (rounding dust guard).
+        const postTxSavings = valueBeforeWithdraw - amount;
+        if (postTxSavings >= 0n && next > postTxSavings) next = postTxSavings;
       } else {
         next = 0n;
       }

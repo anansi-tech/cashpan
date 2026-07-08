@@ -43,7 +43,7 @@ const MONGODB_URI = process.env.MONGODB_URI ?? '';
 const PACKAGE_ID  = process.env.PACKAGE_ID ?? '';
 const NETWORK     = process.env.NEXT_PUBLIC_SUI_NETWORK ?? 'mainnet';
 const DEC         = parseInt(process.env.COIN_DECIMALS ?? '6', 10);
-const DRY_RUN     = process.argv.includes('--dry-run');
+const DRY_RUN     = process.argv.includes('--dry-run') || process.argv.includes('--fix-less');
 
 if (!GRAPHQL_URL || !MONGODB_URI || !PACKAGE_ID) {
   console.error('Missing required env vars: SUI_GRAPHQL_URL, MONGODB_URI, PACKAGE_ID');

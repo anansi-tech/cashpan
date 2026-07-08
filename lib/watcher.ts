@@ -142,5 +142,47 @@ export async function runWatcher(): Promise<WatcherResult> {
     console.error('[watcher] rebalance events:', err instanceof Error ? err.message : err);
   }
 
+  // ── Reconcile: replay from genesis, self-heal if drift > 100 base units ──────
+  // Uses simplified TOPUP subtraction (same as reconcile-principal.mjs) because
+  // historical savings values are unavailable. Catches events that predated the
+  // watcher cursor (pre-migration vaults) and corrects accumulated rounding drift.
+  try {
+    const reconMap = new Map<string, bigint>();
+    let reconCursor: string | null = null;
+    let reconMore = true;
+    while (reconMore) {
+      const { events: reconEvents, nextCursor } = await queryPackageEvents(rebalanceEventType, reconCursor);
+      for (const ev of reconEvents) {
+        const json = ev.contents?.json;
+        if (!json) continue;
+        const vaultId = String(json.vault_id ?? '');
+        if (!vaultMap.has(vaultId)) continue;
+        const direction = Number(json.direction ?? -1);
+        const amount = BigInt(String(json.amount ?? '0'));
+        let p = reconMap.get(vaultId) ?? 0n;
+        if (direction === SWEEP) p += amount;
+        else if (direction === TOPUP) p = p > amount ? p - amount : 0n;
+        reconMap.set(vaultId, p);
+      }
+      reconCursor = nextCursor;
+      reconMore = nextCursor !== null;
+    }
+
+    await Promise.allSettled(
+      Array.from(reconMap.entries()).map(async ([vaultId, replayed]) => {
+        const vault = vaultMap.get(vaultId)!;
+        const stored = BigInt(vault.savingsPrincipal ?? '0');
+        const diff = replayed > stored ? replayed - stored : stored - replayed;
+        if (diff > 100n) {
+          await updateSavingsPrincipal(vault.identityKey, replayed);
+          console.log(`[watcher] reconcile ${vaultId.slice(0, 12)}… ${stored} → ${replayed} (diff ${diff})`);
+        }
+      }),
+    );
+  } catch (err) {
+    errors++;
+    console.error('[watcher] reconcile:', err instanceof Error ? err.message : err);
+  }
+
   return { vaultsProcessed: vaults.length, eventsFound, errors };
 }
