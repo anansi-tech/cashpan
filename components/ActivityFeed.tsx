@@ -200,8 +200,13 @@ export function ActivityFeed({ flush }: { flush?: boolean }) {
         </div>
 
         {displayed.length === 0 ? (
-          <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', padding: '0.5rem 0' }}>
-            No activity yet — the agent will start working once your vault has funds.
+          <div style={{ padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem' }}>
+              No activity yet — the agent will start working once your vault has funds.
+            </div>
+            <div style={{ color: 'var(--color-muted-2)', fontSize: '0.78rem', lineHeight: 1.6 }}>
+              When your Spend pocket grows past your buffer, the agent sweeps the extra into Save automatically.
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>

@@ -71,11 +71,136 @@ function blockMessage(proposal: Proposal, reason: BlockReason): string {
   }
 }
 
-function actionLabel(proposal: Proposal): string {
-  if (proposal.action === 'send') return `Send to ${proposal.payeeLabel}`;
-  if (proposal.action === 'withdrawToMe') return 'Withdraw to wallet';
-  if (proposal.action === 'sweep') return 'Move to Save';
-  return 'Move to Spend';
+function HeadlineSentence({ proposal }: { proposal: Proposal }) {
+  const amtStyle = { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-savings-bright)' } as const;
+  const a = <span style={amtStyle}>${fmtAmt(proposal.amountSui)}</span>;
+  if (proposal.action === 'sweep') return <span>Move {a} from Spend to Save?</span>;
+  if (proposal.action === 'topup') return <span>Move {a} from Save to Spend?</span>;
+  if (proposal.action === 'send') return <span>Send {a} to {proposal.payeeLabel}?</span>;
+  return <span>Withdraw {a} to your wallet?</span>;
+}
+
+function OutcomeStrip({ proposal }: { proposal: Proposal }) {
+  const amt = parseFloat(proposal.amountSui);
+  const spend = parseFloat(proposal.spendBalance);
+  const savings = 'savingsSui' in proposal ? parseFloat((proposal as { savingsSui: string }).savingsSui) : 0;
+
+  const stripStyle = { background: 'rgba(10,15,30,0.5)', borderRadius: '0.625rem', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.625rem' } as const;
+  const lbl = { fontSize: '0.625rem', fontWeight: 700, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.09em', display: 'block' } as const;
+
+  if (proposal.action === 'send' || proposal.action === 'withdrawToMe') {
+    return (
+      <div style={stripStyle}>
+        <div>
+          <span style={lbl}>💵 Spend</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-liquid)' }}>
+            ${fmtAmt(Math.max(0, spend - amt).toFixed(6))} left
+          </span>
+        </div>
+      </div>
+    );
+  }
+  const isSweep = proposal.action === 'sweep';
+  const srcLabel = isSweep ? '💵 Spend' : '💰 Save';
+  const srcVal   = isSweep ? spend - amt : savings - amt;
+  const srcColor = isSweep ? 'var(--color-liquid)' : 'var(--color-savings-bright)';
+  const dstLabel = isSweep ? '💰 Save' : '💵 Spend';
+  const dstVal   = isSweep ? savings + amt : spend + amt;
+  const dstColor = isSweep ? 'var(--color-savings-bright)' : 'var(--color-liquid)';
+  return (
+    <div style={stripStyle}>
+      <div style={{ flex: 1 }}>
+        <span style={lbl}>{srcLabel}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: srcColor }}>
+          ${fmtAmt(Math.max(0, srcVal).toFixed(6))}
+        </span>
+      </div>
+      <span style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>→</span>
+      <div style={{ flex: 1 }}>
+        <span style={lbl}>{dstLabel}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: dstColor }}>
+          ${fmtAmt(Math.max(0, dstVal).toFixed(6))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DetailsDisclosure({ proposal }: { proposal: Proposal }) {
+  const [open, setOpen] = useState(false);
+  const amt     = parseFloat(proposal.amountSui);
+  const spend   = parseFloat(proposal.spendBalance);
+  const savings = 'savingsSui' in proposal ? parseFloat((proposal as { savingsSui: string }).savingsSui) : 0;
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+        >
+          Details {open ? '▲' : '▼'}
+        </button>
+        <span style={{ fontSize: '0.72rem', color: 'var(--color-savings-bright)' }}>fee sponsored · free</span>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <ProposalDetail label="Amount" value={`${fmtAmt(proposal.amountSui)} ${COIN_SYM}`} />
+          {proposal.action === 'send' && (
+            <>
+              <ProposalDetail label="To" value={proposal.payeeLabel} />
+              {proposal.recipient && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                  <span style={{ color: 'var(--color-muted)' }}>Address</span>
+                  <CopyableAddress address={proposal.recipient} />
+                </div>
+              )}
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
+            </>
+          )}
+          {proposal.action === 'withdrawToMe' && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                <span style={{ color: 'var(--color-muted)' }}>To</span>
+                <CopyableAddress address={proposal.payoutAddress} />
+              </div>
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
+            </>
+          )}
+          {proposal.action === 'sweep' && (
+            <>
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Save" value={`${fmtAmt((proposal as { savingsSui: string }).savingsSui)} ${COIN_SYM}`} dim />
+            </>
+          )}
+          {proposal.action === 'topup' && (
+            <>
+              <ProposalDetail label="Save" value={`${fmtAmt((proposal as { savingsSui: string }).savingsSui)} ${COIN_SYM}`} dim />
+              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
+            </>
+          )}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '0.4rem', marginTop: '0.15rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+            <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>After this</div>
+            {(proposal.action === 'send' || proposal.action === 'withdrawToMe') && (
+              <EffectRow label="Spend" before={spend} after={spend - amt} />
+            )}
+            {proposal.action === 'sweep' && (
+              <>
+                <EffectRow label="Spend" before={spend} after={spend - amt} />
+                <EffectRow label="Save" before={savings} after={savings + amt} />
+              </>
+            )}
+            {proposal.action === 'topup' && (
+              <>
+                <EffectRow label="Save" before={savings} after={savings - amt} />
+                <EffectRow label="Spend" before={spend} after={spend + amt} />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EffectRow({ label, before, after }: { label: string; before: number; after: number }) {
@@ -227,91 +352,33 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
       background: accentColor,
       border: `1px solid ${borderColor}`,
       borderRadius: '0.875rem',
-      padding: '1rem 1.1rem',
+      padding: '1.125rem 1.25rem',
       display: 'flex',
       flexDirection: 'column',
       gap: '0.75rem',
-      maxWidth: '340px',
+      maxWidth: '380px',
     }}>
-      {/* Header */}
-      <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: isBlocked ? 'rgba(239,68,68,0.8)' : 'var(--color-savings)' }}>
-        {isBlocked ? '⚠ Blocked' : actionLabel(proposal)}
-      </span>
-
-      {/* Block reason */}
+      {/* Blocked */}
       {isBlocked && (
-        <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.55 }}>
-          {blockMessage(proposal, proposal.blocked!)}
-        </div>
-      )}
-
-      {/* Proposal details */}
-      {!isBlocked && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <ProposalDetail label="Amount" value={`${fmtAmt(proposal.amountSui)} ${COIN_SYM}`} />
-
-          {proposal.action === 'send' && (
-            <>
-              <ProposalDetail label="To" value={proposal.payeeLabel} />
-              {proposal.recipient && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                  <span style={{ color: 'var(--color-muted)' }}>Address</span>
-                  <CopyableAddress address={proposal.recipient} />
-                </div>
-              )}
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-            </>
-          )}
-
-          {proposal.action === 'withdrawToMe' && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                <span style={{ color: 'var(--color-muted)' }}>To</span>
-                <CopyableAddress address={proposal.payoutAddress} />
-              </div>
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-            </>
-          )}
-
-          {proposal.action === 'sweep' && (
-            <>
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Save" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
-            </>
-          )}
-
-          {proposal.action === 'topup' && (
-            <>
-              <ProposalDetail label="Save" value={`${fmtAmt(proposal.savingsSui)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Effect summary */}
-      {!isBlocked && (
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-          <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.1rem' }}>
-            After this
+        <>
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgba(239,68,68,0.8)' }}>
+            ⚠ Blocked
+          </span>
+          <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.55 }}>
+            {blockMessage(proposal, proposal.blocked!)}
           </div>
-          {(proposal.action === 'send' || proposal.action === 'withdrawToMe') && (
-            <EffectRow label="Spend" before={spend} after={spend - amt} />
-          )}
-          {proposal.action === 'sweep' && (
-            <>
-              <EffectRow label="Spend" before={spend} after={spend - amt} />
-              <EffectRow label="Save" before={savings} after={savings + amt} />
-            </>
-          )}
-          {proposal.action === 'topup' && (
-            <>
-              <EffectRow label="Save" before={savings} after={savings - amt} />
-              <EffectRow label="Spend" before={spend} after={spend + amt} />
-            </>
-          )}
+        </>
+      )}
+
+      {/* 1. Headline sentence */}
+      {!isBlocked && (
+        <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-text)', lineHeight: 1.5 }}>
+          <HeadlineSentence proposal={proposal} />
         </div>
       )}
+
+      {/* 2. Outcome strip */}
+      {!isBlocked && <OutcomeStrip proposal={proposal} />}
 
       {/* Large-amount warning */}
       {isLargeAmount && execState === 'idle' && (
@@ -331,7 +398,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
         </div>
       )}
 
-      {/* Buttons */}
+      {/* 3. Buttons */}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         {!isBlocked && (
           <button
@@ -340,9 +407,10 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
               else handleConfirm();
             }}
             style={{
+              flex: 1,
               background: 'var(--color-savings)', color: '#0a0f1e',
-              border: 'none', borderRadius: '0.5rem',
-              padding: '0.5rem 1.1rem', fontSize: '0.82rem', fontWeight: 700,
+              border: 'none', borderRadius: '0.625rem',
+              padding: '0.6875rem 0', fontSize: '0.82rem', fontWeight: 700,
               cursor: 'pointer', minHeight: '36px',
             }}
           >
@@ -361,6 +429,9 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
           {isBlocked ? 'Dismiss' : 'Cancel'}
         </button>
       </div>
+
+      {/* 4. Details disclosure */}
+      {!isBlocked && <DetailsDisclosure proposal={proposal} />}
     </div>
   );
 }

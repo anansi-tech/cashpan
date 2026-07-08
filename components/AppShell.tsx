@@ -34,6 +34,15 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!receiveOpen && !sendOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setReceiveOpen(false); setSendOpen(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [receiveOpen, sendOpen]);
+
   const handleTabChange = (tab: MobileTab) => {
     if (tab === 'send') { setSendOpen(true); return; }
     setMobileTab(tab);
@@ -42,23 +51,29 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   return (
     <>
-      {/* ── Overlays — position:fixed, work on both desktop and mobile ─────────── */}
+      {/* ── Overlays — scrim + right-anchored panel on desktop, full-screen on mobile ── */}
       {receiveOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Receive</span>
-            <button onClick={() => setReceiveOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        <>
+          <div className="overlay-scrim" onClick={() => setReceiveOpen(false)} />
+          <div className="overlay-panel">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Receive</span>
+              <button onClick={() => setReceiveOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <ReceivePanel vaultCtx={vaultCtx} />
+            </div>
           </div>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <ReceivePanel vaultCtx={vaultCtx} />
-          </div>
-        </div>
+        </>
       )}
 
       {sendOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
-          <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
-        </div>
+        <>
+          <div className="overlay-scrim" onClick={() => setSendOpen(false)} />
+          <div className="overlay-panel">
+            <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
+          </div>
+        </>
       )}
 
       {/* ── Desktop layout ≥1024px ────────────────────────────────────────────── */}

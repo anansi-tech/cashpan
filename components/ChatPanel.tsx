@@ -25,6 +25,22 @@ export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vau
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    const onPrefill = (e: Event) => {
+      const { text } = (e as CustomEvent<{ text: string }>).detail;
+      setInputText(text);
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(text.length, text.length);
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      }
+    };
+    window.addEventListener('cashpan:prefill-chat', onPrefill);
+    return () => window.removeEventListener('cashpan:prefill-chat', onPrefill);
+  }, []);
+
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
