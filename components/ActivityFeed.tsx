@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { relativeTime } from '@/lib/utils';
 import type { ActivityEvent } from '@/lib/read-layer';
 import { useVaultData } from './VaultDataProvider';
@@ -125,16 +126,67 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ─── Inline detail (desktop expand) ──────────────────────────────────────────
+
+function InlineDetail({ ev }: { ev: ActivityEvent }) {
+  const [copied, setCopied] = useState(false);
+  const copyDigest = () => {
+    navigator.clipboard.writeText(ev.digest).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  const rowStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' };
+  const labelStyle: CSSProperties = { color: 'var(--color-muted)', fontSize: '0.75rem', flexShrink: 0 };
+  const valueStyle: CSSProperties = { color: 'var(--color-text)', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600 };
+  return (
+    <div style={{ borderTop: '1px solid rgba(148,163,184,0.1)', paddingTop: '0.5rem', paddingBottom: '0.625rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div style={rowStyle}>
+        <span style={labelStyle}>Time</span>
+        <span style={valueStyle}>{relativeTime(ev.timestampMs)}</span>
+      </div>
+      {ev.epochStr && (
+        <div style={rowStyle}>
+          <span style={labelStyle}>Epoch</span>
+          <span style={valueStyle}>{ev.epochStr}</span>
+        </div>
+      )}
+      <div style={rowStyle}>
+        <span style={labelStyle}>Tx</span>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', minWidth: 0 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); copyDigest(); }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: copied ? 'var(--color-savings)' : 'var(--color-muted-2)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 600, transition: 'color 0.15s' }}
+            title={ev.digest}
+          >
+            {copied ? '✓ copied' : `${ev.digest.slice(0, 10)}…${ev.digest.slice(-8)}`}
+          </button>
+          <a
+            href={suiscanUrl(ev.digest)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ color: 'var(--color-muted)', fontSize: '0.75rem', textDecoration: 'none', flexShrink: 0, opacity: 0.7 }}
+            title="View on Suiscan"
+          >
+            ↗
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Feed row ─────────────────────────────────────────────────────────────────
 
-function FeedRow({ ev, index, total, onTap }: { ev: ActivityEvent; index: number; total: number; onTap: () => void }) {
+function FeedRow({ ev, index, total, onTap, isExpanded }: { ev: ActivityEvent; index: number; total: number; onTap: () => void; isExpanded?: boolean }) {
   return (
     <div
       onClick={onTap}
       style={{
         display: 'flex', alignItems: 'center', gap: '0.75rem',
         padding: '0.6rem 0',
-        borderBottom: index < total - 1 ? '1px solid var(--color-border)' : 'none',
+        borderBottom: !isExpanded && index < total - 1 ? '1px solid var(--color-border)' : 'none',
         cursor: 'pointer',
       }}
       onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.75'; }}
@@ -150,12 +202,12 @@ function FeedRow({ ev, index, total, onTap }: { ev: ActivityEvent; index: number
         {eventIcon(ev)}
       </div>
 
-      <div style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isExpanded ? 600 : undefined }}>
         {ev.text}
       </div>
 
-      <div style={{ color: 'var(--color-muted)', fontSize: '0.75rem', flexShrink: 0 }}>
-        {relativeTime(ev.timestampMs)}
+      <div style={{ color: 'var(--color-muted)', fontSize: isExpanded ? '0.625rem' : '0.75rem', flexShrink: 0 }}>
+        {isExpanded ? '▲' : relativeTime(ev.timestampMs)}
       </div>
     </div>
   );
@@ -170,8 +222,24 @@ export function ActivityFeed({ flush }: { flush?: boolean }) {
   const [extraEvents, setExtraEvents] = useState<ActivityEvent[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [detail, setDetail] = useState<ActivityEvent | null>(null);
+  const [expandedDigest, setExpandedDigest] = useState<string | null>(null);
 
   useEffect(() => { setUpdatedAt(Date.now()); }, [events]);
+
+  useEffect(() => {
+    if (!expandedDigest) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedDigest(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expandedDigest]);
+
+  const handleRowTap = (ev: ActivityEvent) => {
+    if (window.matchMedia('(min-width: 1024px)').matches) {
+      setExpandedDigest((prev) => (prev === ev.digest ? null : ev.digest));
+    } else {
+      setDetail(ev);
+    }
+  };
 
   const displayed = expanded ? extraEvents : events;
 
@@ -210,9 +278,29 @@ export function ActivityFeed({ flush }: { flush?: boolean }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {displayed.map((ev, i) => (
-              <FeedRow key={ev.digest + i} ev={ev} index={i} total={displayed.length} onTap={() => setDetail(ev)} />
-            ))}
+            {displayed.map((ev, i) => {
+              const isExpanded = expandedDigest === ev.digest;
+              if (isExpanded) {
+                return (
+                  <div
+                    key={ev.digest + i}
+                    style={{
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(148,163,184,0.15)',
+                      borderRadius: '0.625rem',
+                      margin: '0.375rem -0.625rem',
+                      padding: '0 0.625rem',
+                    }}
+                  >
+                    <FeedRow ev={ev} index={i} total={displayed.length} onTap={() => handleRowTap(ev)} isExpanded />
+                    <InlineDetail ev={ev} />
+                  </div>
+                );
+              }
+              return (
+                <FeedRow key={ev.digest + i} ev={ev} index={i} total={displayed.length} onTap={() => handleRowTap(ev)} />
+              );
+            })}
 
             {!expanded && events.length >= 10 && (
               <button
