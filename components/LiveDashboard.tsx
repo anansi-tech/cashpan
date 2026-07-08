@@ -60,54 +60,67 @@ function QuickBtn({ label, icon, onClick }: { label: string; icon: string; onCli
   );
 }
 
-// ─── Compact pocket row ───────────────────────────────────────────────────────
+// ─── Tinted pocket card ───────────────────────────────────────────────────────
 
-function PocketRow({
+function PocketCard({
+  type,
   icon,
   label,
   amountBase,
   sub,
   aprChip,
+  animated,
 }: {
+  type: 'spend' | 'save';
   icon: string;
   label: string;
   amountBase: number;
   sub?: string;
   aprChip?: string;
+  animated?: boolean;
 }) {
+  const isSpend = type === 'spend';
+  const glowAnim = isSpend ? 'spend-glow' : 'save-glow';
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.75rem 1rem',
-        background: 'rgba(255,255,255,0.025)',
-        border: '1px solid var(--color-border)',
-        borderRadius: '0.75rem',
-      }}
-    >
-      <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>{icon}</span>
-      <span style={{ color: 'var(--color-muted)', fontSize: '0.825rem', fontWeight: 600, minWidth: '3.5rem' }}>
-        {label}
-      </span>
-      <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
-        ${fmtLocale(amountBase)} {COIN_SYM}
-      </span>
-      {aprChip && (
-        <span style={{
-          fontSize: '0.625rem', fontWeight: 700,
-          color: 'var(--color-savings)', background: 'rgba(16,185,129,0.12)',
-          border: '1px solid rgba(16,185,129,0.25)',
-          borderRadius: '999px', padding: '0.0625rem 0.375rem',
-          whiteSpace: 'nowrap', flexShrink: 0,
-        }}>
-          {aprChip}
+    <div style={{
+      borderRadius: '0.875rem',
+      padding: '1rem 1.125rem',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.25rem',
+      background: isSpend ? 'rgba(245,158,11,0.08)' : 'var(--color-savings-dim)',
+      border: `1px solid ${isSpend ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.22)'}`,
+      animation: animated ? `${glowAnim} 1.6s ease-in-out 1` : undefined,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>
+          {icon} {label}
         </span>
-      )}
-      {sub && !aprChip && (
-        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted-2)', whiteSpace: 'nowrap' }}>{sub}</span>
-      )}
+        {aprChip && (
+          <span style={{
+            fontSize: '0.625rem', fontWeight: 700,
+            color: 'var(--color-savings)', background: 'rgba(16,185,129,0.12)',
+            border: '1px solid rgba(16,185,129,0.25)',
+            borderRadius: '999px', padding: '0.0625rem 0.375rem',
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}>{aprChip}</span>
+        )}
+        {sub && !aprChip && (
+          <span style={{ fontSize: '0.72rem', color: 'var(--color-muted-2)', whiteSpace: 'nowrap' }}>{sub}</span>
+        )}
+      </div>
+      <div>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700,
+          letterSpacing: '-0.02em', whiteSpace: 'nowrap',
+          color: isSpend ? 'var(--color-liquid)' : 'var(--color-savings-bright)',
+        }}>
+          ${fmtLocale(amountBase)}
+        </span>
+        <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--color-muted-2)', marginLeft: '0.3rem' }}>
+          {COIN_SYM}
+        </span>
+      </div>
     </div>
   );
 }
@@ -126,6 +139,10 @@ export function LiveDashboard() {
     liquid: Number(balances?.liquid ?? 0),
     savingsValue: Number(balances?.savingsValue ?? 0),
   });
+
+  const [pulse, setPulse] = useState<'spend' | 'save' | null>(null);
+  const mountedRef = useRef(false);
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const rafRef = useRef<number>(0);
 
@@ -148,11 +165,24 @@ export function LiveDashboard() {
   }, [animate]);
 
   useEffect(() => {
+    return () => { if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current); };
+  }, []);
+
+  useEffect(() => {
     if (!balances) return;
-    authRef.current = {
-      liquid: Number(balances.liquid),
-      savingsValue: Number(balances.savingsValue),
-    };
+    const newLiquid = Number(balances.liquid);
+    const newSavings = Number(balances.savingsValue);
+    if (mountedRef.current) {
+      const didSaveChange = newSavings !== authRef.current.savingsValue;
+      const didSpendChange = newLiquid !== authRef.current.liquid;
+      if (didSaveChange || didSpendChange) {
+        if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+        setPulse(didSaveChange ? 'save' : 'spend');
+        pulseTimerRef.current = setTimeout(() => setPulse(null), 1600);
+      }
+    }
+    mountedRef.current = true;
+    authRef.current = { liquid: newLiquid, savingsValue: newSavings };
   }, [balances]);
 
   const liquid = displayed.liquid;
@@ -201,17 +231,20 @@ export function LiveDashboard() {
         )}
       </div>
 
-      {/* Pocket rows */}
+      {/* Pocket cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <PocketRow icon="💵" label="Spend" amountBase={liquid} sub="ready to use" />
-        <PocketRow icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} />
+        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" animated={pulse === 'spend'} />
+        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} animated={pulse === 'save'} />
       </div>
 
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <QuickBtn icon="📥" label="Receive" onClick={() => dispatch('cashpan:show-receive')} />
         <QuickBtn icon="↗" label="Send" onClick={() => dispatch('cashpan:show-send')} />
-        <QuickBtn icon="⇄" label="Move" onClick={() => dispatch('cashpan:show-chat')} />
+        <QuickBtn icon="⇄" label="Move" onClick={() => {
+          dispatch('cashpan:show-chat');
+          window.dispatchEvent(new CustomEvent('cashpan:prefill-chat', { detail: { text: 'Move $' } }));
+        }} />
       </div>
 
     </div>

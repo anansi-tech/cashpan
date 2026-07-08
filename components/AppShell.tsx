@@ -34,6 +34,15 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!receiveOpen && !sendOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setReceiveOpen(false); setSendOpen(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [receiveOpen, sendOpen]);
+
   const handleTabChange = (tab: MobileTab) => {
     if (tab === 'send') { setSendOpen(true); return; }
     setMobileTab(tab);
@@ -42,46 +51,55 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   return (
     <>
-      {/* ── Overlays — position:fixed, work on both desktop and mobile ─────────── */}
+      {/* ── Overlays — scrim + right-anchored panel on desktop, full-screen on mobile ── */}
       {receiveOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Receive</span>
-            <button onClick={() => setReceiveOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        <>
+          <div className="overlay-scrim" onClick={() => setReceiveOpen(false)} />
+          <div className="overlay-panel">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Receive</span>
+              <button onClick={() => setReceiveOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <ReceivePanel vaultCtx={vaultCtx} />
+            </div>
           </div>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <ReceivePanel vaultCtx={vaultCtx} />
-          </div>
-        </div>
+        </>
       )}
 
       {sendOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'var(--color-bg)', display: 'flex', flexDirection: 'column' }}>
-          <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
-        </div>
+        <>
+          <div className="overlay-scrim" onClick={() => setSendOpen(false)} />
+          <div className="overlay-panel">
+            <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
+          </div>
+        </>
       )}
 
       {/* ── Desktop layout ≥1024px ────────────────────────────────────────────── */}
       <div className="shell-desktop">
 
-        {/* Left col: dashboard summary + chat */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid var(--color-border)' }}>
-          {/* Dashboard — natural height, no internal scroll */}
-          <div style={{ flexShrink: 0, padding: '1.25rem 1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: 0 }}>
-            <WalletArrivalStrip vaultCtx={vaultCtx} />
-            <ProposalBanner vaultCtx={vaultCtx} />
-            <LiveDashboard />
-          </div>
-          {/* Chat fills remaining height */}
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--color-border)' }}>
-            <ChatPanel vaultCtx={vaultCtx} />
-          </div>
+        {/* Left rail: money */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '1.75rem 1.5rem', gap: '1.25rem', borderRight: '1px solid var(--color-border)' }}>
+          <WalletArrivalStrip vaultCtx={vaultCtx} />
+          <ProposalBanner vaultCtx={vaultCtx} />
+          <LiveDashboard />
         </div>
 
-        {/* Right col: activity feed, internal scroll */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
-            <ActivityFeed />
+        {/* Center: chat hero */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+          {/* Panel header — desktop only */}
+          <div style={{ padding: '1rem 2rem', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
+            <span style={{ fontSize: '0.9375rem' }}>💬</span>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)' }}>Money Talks</span>
+          </div>
+          <ChatPanel vaultCtx={vaultCtx} />
+        </div>
+
+        {/* Right rail: activity */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: '1px solid var(--color-border)' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1.75rem 1.5rem' }}>
+            <ActivityFeed flush />
           </div>
         </div>
       </div>
