@@ -110,6 +110,24 @@ Everything is driven by three `.env` values — **no code changes needed**:
 
 **To use USDC or Sui Dollar instead**: set the three vars above manually and skip the mint step. The vault, agent, and UI adapt automatically. The `test_usd` module is published but unused.
 
+## UI layout rule (standing)
+After any layout refactor (shell restructure, new column, tab changes), verify
+EVERY feature has a reachable entry point on BOTH shells before committing.
+Checklist — not assumption:
+
+| Feature | Desktop entry point | Mobile entry point |
+|---|---|---|
+| Receive (QR) | QuickBtn → overlay | QuickBtn → overlay |
+| Send | QuickBtn → overlay | BottomNav send / overlay |
+| Chat | center column always visible | MobileChatBar |
+| Settings + Contacts | AccountMenu → overlay | BottomNav settings tab |
+| Activity detail | inline expand (≥1024px) | DetailDrawer sheet |
+
+Three regressions from command-center refactor: Settings/Contacts unreachable
+on desktop, Receive QR blank on desktop (address from `getSession()` raced),
+Activity detail opened full-screen sheet on desktop. Fix pattern: features
+removed from a layout must land somewhere else in the same commit.
+
 ## Migration rule (standing)
 Any change that adds a required/queried field to a Mongo schema, or changes the
 semantics of an existing field (cost basis, network scoping, etc.), MUST include a
