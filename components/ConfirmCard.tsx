@@ -116,7 +116,7 @@ function OutcomeStrip({ proposal }: { proposal: Proposal }) {
         </span>
       </div>
       <span style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>→</span>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, textAlign: 'right' }}>
         <span style={lbl}>{dstLabel}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: dstColor }}>
           ${fmtAmt(Math.max(0, dstVal).toFixed(6))}
