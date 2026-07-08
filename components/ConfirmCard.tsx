@@ -364,9 +364,22 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
           <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgba(239,68,68,0.8)' }}>
             ⚠ Blocked
           </span>
-          <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.55 }}>
-            {blockMessage(proposal, proposal.blocked!)}
-          </div>
+          {proposal.blocked === 'not_a_payee' ? (
+            <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.55 }}>
+              {`${proposal.action === 'send' ? `"${proposal.payeeLabel}"` : 'This recipient'} isn't in your contacts. `}
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('cashpan:send-panel-contacts-view'))}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-savings)', fontSize: '0.82rem', fontWeight: 600, textDecoration: 'underline' }}
+              >
+                Add them in Contacts
+              </button>
+              {' to send to them by name.'}
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.55 }}>
+              {blockMessage(proposal, proposal.blocked!)}
+            </div>
+          )}
         </>
       )}
 
