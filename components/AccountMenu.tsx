@@ -314,7 +314,27 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
             )}
           </div>
 
-          {/* 5. Sign out */}
+          {/* 5. Settings & Contacts */}
+          <button
+            onClick={() => {
+              setOpen(false);
+              window.dispatchEvent(new CustomEvent('cashpan:show-settings'));
+            }}
+            style={{
+              width: '100%', padding: '0.75rem 1rem',
+              background: 'transparent', border: 'none',
+              borderBottom: '1px solid var(--color-border)',
+              cursor: 'pointer', color: 'var(--color-text)',
+              fontSize: '0.875rem', textAlign: 'left',
+              transition: 'background 0.1s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            Settings &amp; Contacts
+          </button>
+
+          {/* 6. Sign out */}
           <button
             onClick={signOut}
             style={{

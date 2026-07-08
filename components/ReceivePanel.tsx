@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSession } from '@/lib/auth';
 import { useDeposit } from '@/lib/use-deposit';
 import type { VaultTxContext } from '@/lib/vault-tx';
 
@@ -44,13 +43,8 @@ function CopyChip({ value, label }: { value: string; label: string }) {
 
 export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const { totalOwned, depositedAmount, state: depositState, error: depositError, deposit: handleDeposit } = useDeposit(vaultCtx);
-  const [address, setAddress] = useState('');
+  const address = vaultCtx.userAddress ?? '';
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const session = getSession();
-    setAddress(session?.address ?? '');
-  }, []);
 
   useEffect(() => {
     if (!address) return;

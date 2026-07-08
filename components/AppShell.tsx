@@ -19,29 +19,33 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const onReceive = () => setReceiveOpen(true);
     const onSend = () => setSendOpen(true);
     const onChat = () => setChatOpen(true);
+    const onSettings = () => setSettingsOpen(true);
     window.addEventListener('cashpan:show-receive', onReceive);
     window.addEventListener('cashpan:show-send', onSend);
     window.addEventListener('cashpan:show-chat', onChat);
+    window.addEventListener('cashpan:show-settings', onSettings);
     return () => {
       window.removeEventListener('cashpan:show-receive', onReceive);
       window.removeEventListener('cashpan:show-send', onSend);
       window.removeEventListener('cashpan:show-chat', onChat);
+      window.removeEventListener('cashpan:show-settings', onSettings);
     };
   }, []);
 
   useEffect(() => {
-    if (!receiveOpen && !sendOpen) return;
+    if (!receiveOpen && !sendOpen && !settingsOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setReceiveOpen(false); setSendOpen(false); }
+      if (e.key === 'Escape') { setReceiveOpen(false); setSendOpen(false); setSettingsOpen(false); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [receiveOpen, sendOpen]);
+  }, [receiveOpen, sendOpen, settingsOpen]);
 
   const handleTabChange = (tab: MobileTab) => {
     if (tab === 'send') { setSendOpen(true); return; }
@@ -72,6 +76,28 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           <div className="overlay-scrim" onClick={() => setSendOpen(false)} />
           <div className="overlay-panel">
             <SendSheet vaultCtx={vaultCtx} onClose={() => setSendOpen(false)} />
+          </div>
+        </>
+      )}
+
+      {settingsOpen && (
+        <>
+          <div className="overlay-scrim" onClick={() => setSettingsOpen(false)} />
+          <div className="overlay-panel">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)' }}>Settings</span>
+              <button onClick={() => setSettingsOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '1.25rem', cursor: 'pointer', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Agent Settings</div>
+                <SettingsPanel />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Contacts</div>
+                <ContactsPanel />
+              </div>
+            </div>
           </div>
         </>
       )}
