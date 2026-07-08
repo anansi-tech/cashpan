@@ -140,7 +140,7 @@ export function LiveDashboard() {
     savingsValue: Number(balances?.savingsValue ?? 0),
   });
 
-  const [pulse, setPulse] = useState<'spend' | 'save' | null>(null);
+  const [pulse, setPulse] = useState<{ spend: boolean; save: boolean }>({ spend: false, save: false });
   const mountedRef = useRef(false);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -177,8 +177,8 @@ export function LiveDashboard() {
       const didSpendChange = newLiquid !== authRef.current.liquid;
       if (didSaveChange || didSpendChange) {
         if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
-        setPulse(didSaveChange ? 'save' : 'spend');
-        pulseTimerRef.current = setTimeout(() => setPulse(null), 1600);
+        setPulse({ spend: didSpendChange, save: didSaveChange });
+        pulseTimerRef.current = setTimeout(() => setPulse({ spend: false, save: false }), 1600);
       }
     }
     mountedRef.current = true;
@@ -233,8 +233,8 @@ export function LiveDashboard() {
 
       {/* Pocket cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" animated={pulse === 'spend'} />
-        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} animated={pulse === 'save'} />
+        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" animated={pulse.spend} />
+        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} animated={pulse.save} />
       </div>
 
       {/* Quick actions */}

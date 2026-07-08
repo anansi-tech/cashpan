@@ -140,7 +140,7 @@ function BrainCard({
 
   return (
     <div style={cardStyle}>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div>
         <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.15rem' }}>
           {heading}
         </div>
@@ -150,7 +150,7 @@ function BrainCard({
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
         <button onClick={onDismiss} disabled={state === 'pending'} style={notNowBtn}>
           Not now
         </button>
@@ -174,8 +174,9 @@ function BrainCard({
 
 const cardStyle: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  gap: '1rem',
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: '0.625rem',
   padding: '0.75rem 1rem',
   background: 'rgba(255,255,255,0.03)',
   border: '1px solid rgba(148,163,184,0.15)',

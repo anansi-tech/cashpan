@@ -209,6 +209,7 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
   const { signOut, user } = useAuth();
   const [open, setOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [imgErr, setImgErr] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -256,14 +257,23 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
         }}>
           {/* 1. Identity header */}
           <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{
-              width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0,
-              background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--color-savings-bright)', fontWeight: 700, fontSize: '1.05rem',
-            }}>
-              {initial}
-            </div>
+            {user?.picture && !imgErr ? (
+              <img
+                src={user.picture}
+                alt=""
+                onError={() => setImgErr(true)}
+                style={{ width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(16,185,129,0.3)' }}
+              />
+            ) : (
+              <div style={{
+                width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0,
+                background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--color-savings-bright)', fontWeight: 700, fontSize: '1.05rem',
+              }}>
+                {initial}
+              </div>
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {displayName}
