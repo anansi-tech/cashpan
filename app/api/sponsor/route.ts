@@ -73,6 +73,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
+    if (!data.result?.txBytes || !data.result?.signature) {
+      const raw = JSON.stringify(data).slice(0, 500);
+      console.error('[/api/sponsor] unexpected Shinami response (no result):', raw);
+      return NextResponse.json({ error: `Unexpected sponsorship response: ${raw}` }, { status: 502 });
+    }
+
     return NextResponse.json(data.result);
   } catch (err) {
     console.error('[/api/sponsor] error:', err);

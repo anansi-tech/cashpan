@@ -34,12 +34,16 @@ async function callSponsor(body: unknown): Promise<{ txBytes: string; signature:
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const err = await res.json() as { error?: string };
-    console.error('[sponsor] failed:', res.status, err);
-    throw new Error(err.error ?? 'Gas sponsorship failed');
+  const data = await res.json().catch(() => ({})) as { txBytes?: string; signature?: string; error?: string };
+  if (!res.ok || data.error) {
+    const msg = data.error ?? `Sponsorship failed (HTTP ${res.status})`;
+    console.error('[sponsor] failed:', res.status, msg);
+    throw new Error(msg);
   }
-  return res.json() as Promise<{ txBytes: string; signature: string }>;
+  if (!data.txBytes || !data.signature) {
+    throw new Error(`[sponsor] incomplete response — txBytes or signature missing`);
+  }
+  return data as { txBytes: string; signature: string };
 }
 
 function dispatchSessionExpired(): never {
@@ -64,12 +68,16 @@ async function signAndSubmit(sponsored: { txBytes: string; signature: string }):
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ txBytes: sponsored.txBytes, signatures: [zkLoginSig, sponsored.signature] }),
   });
-  if (!submitRes.ok) {
-    const err = await submitRes.json() as { error?: string };
-    console.error('[submit-tx] failed:', submitRes.status, err);
-    throw new Error(err.error ?? 'Transaction submission failed');
+  const submitData = await submitRes.json().catch(() => ({})) as { digest?: string; effects?: { status?: { status?: string; error?: string } }; error?: string };
+  if (!submitRes.ok || submitData.error) {
+    const msg = submitData.error ?? `Submission failed (HTTP ${submitRes.status})`;
+    console.error('[submit-tx] failed:', submitRes.status, msg);
+    throw new Error(msg);
   }
-  return submitRes.json() as Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }>;
+  if (!submitData.digest) {
+    throw new Error('[submit-tx] empty digest — transaction may not have been submitted');
+  }
+  return submitData as { digest: string; effects?: { status?: { status?: string; error?: string } } };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

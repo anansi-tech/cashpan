@@ -23,6 +23,11 @@ export async function POST(req: Request) {
         : '') ??
       '';
     const effects = r.effects as { status?: { status?: string; error?: string } } | undefined;
+    if (!digest) {
+      const raw = JSON.stringify(r).slice(0, 500);
+      console.error('[/api/submit-tx] executeTransaction returned no digest. Raw:', raw);
+      throw new Error(`Transaction executed but returned no digest. Raw: ${raw}`);
+    }
     if (effects?.status?.status && effects.status.status !== 'success') {
       console.error('[/api/submit-tx] transaction failed:', digest, JSON.stringify(effects.status));
     }
