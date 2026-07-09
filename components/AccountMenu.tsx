@@ -207,6 +207,7 @@ function AutoSaveRule() {
 
 export function AccountMenu({ address, vaultId }: { address: string; vaultId: string }) {
   const { signOut, user } = useAuth();
+  const { balances } = useVaultData();
   const [open, setOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [imgErr, setImgErr] = useState(false);
@@ -308,6 +309,12 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
             </button>
             {showDetails && (
               <div style={{ padding: '0 1rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                {balances?.currentEpoch && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--color-muted-2)' }}>Epoch</span>
+                    <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-text)', fontWeight: 600 }}>{balances.currentEpoch}</span>
+                  </div>
+                )}
                 <div style={{ fontSize: '0.68rem', color: 'var(--color-muted-2)' }}>Vault ID</div>
                 <CopyRow value={vaultId} />
               </div>

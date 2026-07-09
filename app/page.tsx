@@ -72,6 +72,7 @@ export default async function Page() {
               <div className="epoch-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--color-savings)', display: 'inline-block', boxShadow: '0 0 8px var(--color-savings)' }} />
                 <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>Sui {suiNetwork()}</span>
+                <span style={{ color: 'var(--color-muted-2)', fontSize: '0.78rem' }}>· epoch {balances.currentEpoch}</span>
               </div>
               <AccountMenu address={vault.payoutAddress} vaultId={vault.vaultId} />
             </div>
