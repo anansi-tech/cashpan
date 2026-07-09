@@ -7,8 +7,7 @@ import { ChatPanel } from './ChatPanel';
 import { ProposalBanner } from './ProposalBanner';
 import { WalletArrivalStrip } from './WalletArrivalStrip';
 import { SendSheet } from './SendSheet';
-import { SettingsPanel } from './SettingsPanel';
-import { ContactsPanel } from './ContactsPanel';
+import { ProfileContent } from './AccountMenu';
 import { ReceivePanel } from './ReceivePanel';
 import { BottomNav, type MobileTab } from './BottomNav';
 import { MobileChatBar } from './MobileChatBar';
@@ -119,16 +118,9 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
             <ActivityFeed />
           </div>
 
-          {/* Settings + Contacts */}
-          <div style={{ display: mobileTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '1rem 1.25rem', gap: '1.5rem' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Agent Settings</div>
-              <SettingsPanel />
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '0.5rem' }}>Contacts</div>
-              <ContactsPanel />
-            </div>
+          {/* Profile */}
+          <div style={{ display: mobileTab === 'profile' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
+            <ProfileContent address={vaultCtx.userAddress} vaultId={vaultCtx.vaultId} />
           </div>
         </div>
 

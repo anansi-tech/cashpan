@@ -1,12 +1,12 @@
 'use client';
 
-export type MobileTab = 'home' | 'activity' | 'send' | 'settings';
+export type MobileTab = 'home' | 'activity' | 'send' | 'profile';
 
 const TABS: { id: MobileTab; label: string; icon: string }[] = [
   { id: 'home',     label: 'Home',     icon: '⌂' },
   { id: 'activity', label: 'Activity', icon: '↕' },
   { id: 'send',     label: 'Send',     icon: '↗' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
+  { id: 'profile',  label: 'Profile',  icon: '👤' },
 ];
 
 export function BottomNav({

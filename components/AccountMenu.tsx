@@ -20,7 +20,7 @@ const numInputStyle: React.CSSProperties = {
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
-// ── Vault ID copy row (Developer details) ────────────────────────────────────
+// ── Vault ID copy row ────────────────────────────────────────────────────────
 
 function CopyRow({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -53,9 +53,9 @@ function CopyRow({ value }: { value: string }) {
   );
 }
 
-// ── Wallet block — address + outside-CashPan balance in one row ──────────────
+// ── Wallet block ─────────────────────────────────────────────────────────────
 
-function WalletBlock({ address }: { address: string }) {
+function WalletBlock({ address, compact }: { address: string; compact?: boolean }) {
   const { walletBalance } = useVaultData();
   const [copied, setCopied] = useState(false);
 
@@ -72,7 +72,7 @@ function WalletBlock({ address }: { address: string }) {
   };
 
   return (
-    <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }}>
+    <div style={{ padding: compact ? '0.75rem 1rem' : '1rem 0', borderBottom: '1px solid var(--color-border)' }}>
       <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.4rem' }}>
         Wallet
       </div>
@@ -104,9 +104,9 @@ function WalletBlock({ address }: { address: string }) {
   );
 }
 
-// ── Auto-save rule — sentence with inline-editable chips ─────────────────────
+// ── Auto-save rule ───────────────────────────────────────────────────────────
 
-function AutoSaveRule() {
+function AutoSaveRule({ compact }: { compact?: boolean }) {
   const { settings, refresh } = useVaultData();
   const [bufferEdit, setBufferEdit] = useState<string | null>(null);
   const [bandEdit, setBandEdit] = useState<string | null>(null);
@@ -153,7 +153,7 @@ function AutoSaveRule() {
   };
 
   return (
-    <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }}>
+    <div style={{ padding: compact ? '0.75rem 1rem' : '1rem 0', borderBottom: '1px solid var(--color-border)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
         <div style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           Auto-save rule
@@ -203,14 +203,119 @@ function AutoSaveRule() {
   );
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// ── ProfileContent — shared by dropdown (compact) and mobile Profile tab ─────
 
-export function AccountMenu({ address, vaultId }: { address: string; vaultId: string }) {
+export function ProfileContent({
+  address,
+  vaultId,
+  compact = false,
+}: {
+  address: string;
+  vaultId: string;
+  compact?: boolean;
+}) {
   const { signOut, user } = useAuth();
   const { balances } = useVaultData();
-  const [open, setOpen] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
   const [imgErr, setImgErr] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const displayName = user?.name ?? `${address.slice(0, 8)}…${address.slice(-4)}`;
+  const displaySub  = user?.email ? `${user.email} · Google` : null;
+  const initial     = user?.name ? user.name.charAt(0).toUpperCase() : address.slice(2, 3).toUpperCase();
+
+  return (
+    <>
+      {/* 1. Identity header */}
+      <div style={{ padding: compact ? '0.875rem 1rem' : '1rem 0', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        {user?.picture && !imgErr ? (
+          <img
+            src={user.picture}
+            alt=""
+            onError={() => setImgErr(true)}
+            style={{ width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(16,185,129,0.3)' }}
+          />
+        ) : (
+          <div style={{
+            width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0,
+            background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--color-savings-bright)', fontWeight: 700, fontSize: '1.05rem',
+          }}>
+            {initial}
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {displayName}
+          </div>
+          {displaySub && (
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {displaySub}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 2. Wallet */}
+      <WalletBlock address={address} compact={compact} />
+
+      {/* 3. Auto-save rule */}
+      <AutoSaveRule compact={compact} />
+
+      {/* 4. Developer details */}
+      <div style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: compact ? '0.5rem 1rem' : '0.75rem 0',
+            minHeight: compact ? undefined : '44px',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--color-muted)', fontSize: '0.72rem',
+          }}
+        >
+          <span>Developer details</span>
+          <span style={{ opacity: 0.5 }}>{showDetails ? '▲' : '▼'}</span>
+        </button>
+        {showDetails && (
+          <div style={{ padding: compact ? '0 1rem 0.75rem' : '0 0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+            {balances?.currentEpoch && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--color-muted-2)' }}>Epoch</span>
+                <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-text)', fontWeight: 600 }}>{balances.currentEpoch}</span>
+              </div>
+            )}
+            <div style={{ fontSize: '0.68rem', color: 'var(--color-muted-2)' }}>Vault ID</div>
+            <CopyRow value={vaultId} />
+          </div>
+        )}
+      </div>
+
+      {/* 5. Sign out */}
+      <button
+        onClick={signOut}
+        style={{
+          width: '100%',
+          padding: compact ? '0.75rem 1rem' : '1rem 0',
+          minHeight: compact ? undefined : '44px',
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'rgba(252,165,165,0.8)', fontSize: '0.875rem', textAlign: 'left',
+          transition: 'background 0.1s',
+        }}
+        onMouseEnter={(e) => { if (compact) e.currentTarget.style.background = 'rgba(239,68,68,0.06)'; }}
+        onMouseLeave={(e) => { if (compact) e.currentTarget.style.background = 'transparent'; }}
+      >
+        Sign out
+      </button>
+    </>
+  );
+}
+
+// ── AccountMenu — trigger + dropdown shell only ───────────────────────────────
+
+export function AccountMenu({ address, vaultId }: { address: string; vaultId: string }) {
+  const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -221,11 +326,6 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
-
-  // TODO: if name/email are not in session, show short address as title
-  const displayName = user?.name ?? `${address.slice(0, 8)}…${address.slice(-4)}`;
-  const displaySub  = user?.email ? `${user.email} · Google` : null;
-  const initial     = user?.name ? user.name.charAt(0).toUpperCase() : address.slice(2, 3).toUpperCase();
 
   return (
     <div ref={menuRef} style={{ position: 'relative' }}>
@@ -256,85 +356,7 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
           border: '1px solid var(--color-border)', borderRadius: '0.875rem',
           boxShadow: '0 12px 40px rgba(0,0,0,0.5)', zIndex: 200, overflow: 'hidden',
         }}>
-          {/* 1. Identity header */}
-          <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {user?.picture && !imgErr ? (
-              <img
-                src={user.picture}
-                alt=""
-                onError={() => setImgErr(true)}
-                style={{ width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0, objectFit: 'cover', border: '1px solid rgba(16,185,129,0.3)' }}
-              />
-            ) : (
-              <div style={{
-                width: '38px', height: '38px', borderRadius: '50%', flexShrink: 0,
-                background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--color-savings-bright)', fontWeight: 700, fontSize: '1.05rem',
-              }}>
-                {initial}
-              </div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {displayName}
-              </div>
-              {displaySub && (
-                <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {displaySub}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 2. Wallet block — address shown exactly once */}
-          <WalletBlock address={address} />
-
-          {/* 3. Auto-save rule */}
-          <AutoSaveRule />
-
-          {/* 4. Developer details */}
-          <div style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center',
-                justifyContent: 'space-between', padding: '0.5rem 1rem',
-                background: 'transparent', border: 'none', cursor: 'pointer',
-                color: 'var(--color-muted)', fontSize: '0.72rem',
-              }}
-            >
-              <span>Developer details</span>
-              <span style={{ opacity: 0.5 }}>{showDetails ? '▲' : '▼'}</span>
-            </button>
-            {showDetails && (
-              <div style={{ padding: '0 1rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                {balances?.currentEpoch && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
-                    <span style={{ fontSize: '0.68rem', color: 'var(--color-muted-2)' }}>Epoch</span>
-                    <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-text)', fontWeight: 600 }}>{balances.currentEpoch}</span>
-                  </div>
-                )}
-                <div style={{ fontSize: '0.68rem', color: 'var(--color-muted-2)' }}>Vault ID</div>
-                <CopyRow value={vaultId} />
-              </div>
-            )}
-          </div>
-
-          {/* 5. Sign out */}
-          <button
-            onClick={signOut}
-            style={{
-              width: '100%', padding: '0.75rem 1rem',
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              color: 'rgba(252,165,165,0.8)', fontSize: '0.875rem', textAlign: 'left',
-              transition: 'background 0.1s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.06)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            Sign out
-          </button>
+          <ProfileContent address={address} vaultId={vaultId} compact />
         </div>
       )}
     </div>

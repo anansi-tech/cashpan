@@ -180,8 +180,9 @@ body::-webkit-scrollbar {
     display: flex !important;
   }
 
-  /* Header: hide network badge to save space */
-  .epoch-badge {
+  /* Header: hide desktop-only elements */
+  .epoch-badge,
+  .account-menu-desktop {
     display: none;
   }
 
