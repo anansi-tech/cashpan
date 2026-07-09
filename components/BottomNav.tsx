@@ -23,6 +23,7 @@ export function BottomNav({
         borderTop: '1px solid var(--color-border)',
         background: 'var(--color-surface)',
         flexShrink: 0,
+        paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
       {TABS.map((t) => (
