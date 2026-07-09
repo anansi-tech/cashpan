@@ -1,16 +1,17 @@
 'use client';
 
 import { startLogin } from '@/lib/auth';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export function SignIn() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [flash] = useState<string | null>(() => {
+  const [flash, setFlash] = useState<string | null>(null);
+
+  useEffect(() => {
     const msg = sessionStorage.getItem('cashpan_flash');
-    if (msg) sessionStorage.removeItem('cashpan_flash');
-    return msg;
-  });
+    if (msg) { sessionStorage.removeItem('cashpan_flash'); setFlash(msg); }
+  }, []);
 
   async function handleSignIn() {
     setLoading(true);
