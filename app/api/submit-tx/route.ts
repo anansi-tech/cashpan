@@ -22,7 +22,11 @@ export async function POST(req: Request) {
         ? (r.effects as { transactionDigest: string }).transactionDigest
         : '') ??
       '';
-    return NextResponse.json({ digest });
+    const effects = r.effects as { status?: { status?: string; error?: string } } | undefined;
+    if (effects?.status?.status && effects.status.status !== 'success') {
+      console.error('[/api/submit-tx] transaction failed:', digest, JSON.stringify(effects.status));
+    }
+    return NextResponse.json({ digest, effects });
   } catch (err) {
     console.error('[/api/submit-tx] error:', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

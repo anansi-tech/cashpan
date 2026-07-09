@@ -47,7 +47,7 @@ function dispatchSessionExpired(): never {
   throw new Error('Session expired — sign in again');
 }
 
-async function signAndSubmit(sponsored: { txBytes: string; signature: string }): Promise<{ digest: string }> {
+async function signAndSubmit(sponsored: { txBytes: string; signature: string }): Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }> {
   const ephemeralKey = getEphemeralKeypair();
   const zkProof = getZkProof();
   const maxEpoch = getMaxEpoch();
@@ -69,13 +69,13 @@ async function signAndSubmit(sponsored: { txBytes: string; signature: string }):
     console.error('[submit-tx] failed:', submitRes.status, err);
     throw new Error(err.error ?? 'Transaction submission failed');
   }
-  return submitRes.json() as Promise<{ digest: string }>;
+  return submitRes.json() as Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }>;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Sweep, topup, send, withdraw — plain object-ref PTBs, no unresolved intents. */
-export async function executeTransaction(tx: Transaction): Promise<{ digest: string }> {
+export async function executeTransaction(tx: Transaction): Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }> {
   const session = getSession();
   if (!session) dispatchSessionExpired();
 
@@ -93,7 +93,7 @@ export async function executeTransaction(tx: Transaction): Promise<{ digest: str
 export async function executeDepositTransaction(
   balance: bigint,
   ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>,
-): Promise<{ digest: string }> {
+): Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }> {
   const session = getSession();
   if (!session) dispatchSessionExpired();
 

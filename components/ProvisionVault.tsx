@@ -52,12 +52,18 @@ export function ProvisionVault({ packageId, pType, venueId, coinType }: Provisio
       tx.transferObjects([ownerCap], tx.pure.address(userAddress));
 
       const result = await executeTransaction(tx) as {
+        digest?: string;
         effects?: { status: { status: string; error?: string }; created?: Array<{ reference: { objectId: string } }> };
         objectChanges?: Array<{ type: string; objectType?: string; objectId?: string }>;
       };
 
       if (result.effects?.status.status !== 'success') {
-        throw new Error(result.effects?.status.error ?? 'Transaction failed');
+        console.error('[ProvisionVault] tx failed', {
+          digest: result.digest,
+          status: result.effects?.status,
+          error: result.effects?.status.error,
+        });
+        throw new Error(result.effects?.status.error ?? `Transaction failed (digest: ${result.digest ?? 'unknown'})`);
       }
 
       // Extract vault ID and ownerCap ID from objectChanges
