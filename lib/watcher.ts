@@ -6,6 +6,14 @@
  * cursor after each page so a crash only replays the current page.
  *
  * Called by /api/cron/watcher (Vercel Cron or any scheduler).
+ *
+ * Principal tracking is ABSOLUTE, not incremental:
+ * - The reconcile phase replays from genesis (cursor=null) every run.
+ * - Result always overwrites Mongo unconditionally — idempotent by design.
+ * - Eager execute-path writes (in /api/principal-update) are provisional;
+ *   the next reconcile corrects any error.
+ * - No incremental cursor-based principal accumulation; that pattern caused
+ *   double-application when Mongo already held eager updates.
  */
 
 import { suiNetwork } from './sui';
@@ -17,10 +25,9 @@ import {
 } from './db/vault-registry';
 import { getBalances } from './read-layer';
 import { queryPackageEvents } from './graphql';
+import { replayPrincipal } from './principal-replay';
 
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
-const SWEEP = 0;
-const TOPUP = 1;
 
 export interface WatcherResult {
   vaultsProcessed: number;
@@ -38,10 +45,9 @@ export async function runWatcher(): Promise<WatcherResult> {
   const depositEventType   = `${PACKAGE_ID}::vault::DepositEvent`;
   const rebalanceEventType = `${PACKAGE_ID}::vault::RebalanceEvent`;
 
-  const [vaults, depositCursor, rebalanceCursor] = await Promise.all([
+  const [vaults, depositCursor] = await Promise.all([
     listVaults(network),
     getWatcherCursor(depositEventType),
-    getWatcherCursor(rebalanceEventType),
   ]);
 
   // O(1) dispatch: vaultId → VaultRecord
@@ -65,7 +71,7 @@ export async function runWatcher(): Promise<WatcherResult> {
       }),
   );
 
-  // ── Deposit events ───────────────────────────────────────────────────────────
+  // ── Deposit events (incremental, cursor-based, no principal tracking) ────────
   try {
     let cursor = depositCursor;
     let hasMore = true;
@@ -84,98 +90,33 @@ export async function runWatcher(): Promise<WatcherResult> {
     console.error('[watcher] deposit events:', err instanceof Error ? err.message : err);
   }
 
-  // ── Rebalance events (principal tracking) ────────────────────────────────────
+  // ── Reconcile: absolute genesis replay, always overwrites ────────────────────
+  // Fetches ALL RebalanceEvents from genesis (cursor=null), filters per-vault,
+  // replays from zero using replayPrincipal(), and writes unconditionally.
+  // Idempotency: running N times in a row produces the same Mongo value each time.
   try {
-    let cursor = rebalanceCursor;
-    let hasMore = true;
-    // Accumulate per-vault principal deltas across all pages before flushing.
-    const principalMap = new Map<string, bigint>();
-
-    while (hasMore) {
-      const { events, nextCursor } = await queryPackageEvents(rebalanceEventType, cursor);
-
-      for (const ev of events) {
-        const json = ev.contents?.json;
-        if (!json) continue;
-        const vaultId = String(json.vault_id ?? '');
-        const vault = vaultMap.get(vaultId);
-        if (!vault) continue;
-
-        const direction = Number(json.direction ?? -1);
-        const amount = BigInt(String(json.amount ?? '0'));
-        let principal = principalMap.get(vaultId) ?? BigInt(vault.savingsPrincipal ?? '0');
-
-        if (direction === SWEEP) {
-          principal += amount;
-        } else if (direction === TOPUP) {
-          try {
-            const balances = await getBalances(vaultId);
-            const savingsAfter = BigInt(balances.savingsValue);
-            const valueBeforeWithdraw = savingsAfter + amount;
-            if (valueBeforeWithdraw > 0n) {
-              const reduction = (principal * amount) / valueBeforeWithdraw;
-              principal = principal > reduction ? principal - reduction : 0n;
-            }
-          } catch {
-            principal = principal > amount ? principal - amount : 0n;
-          }
-        }
-
-        principalMap.set(vaultId, principal);
-        eventsFound++;
-      }
-
-      if (nextCursor) await setWatcherCursor(rebalanceEventType, nextCursor);
-      cursor = nextCursor;
-      hasMore = nextCursor !== null;
-    }
-
-    // Flush principal updates after all pages are consumed.
-    await Promise.allSettled(
-      Array.from(principalMap.entries()).map(([vaultId, principal]) => {
-        const vault = vaultMap.get(vaultId)!;
-        return updateSavingsPrincipal(vault.identityKey, principal);
-      }),
-    );
-  } catch (err) {
-    errors++;
-    console.error('[watcher] rebalance events:', err instanceof Error ? err.message : err);
-  }
-
-  // ── Reconcile: replay from genesis, self-heal if drift > 100 base units ──────
-  // Uses simplified TOPUP subtraction (same as reconcile-principal.mjs) because
-  // historical savings values are unavailable. Catches events that predated the
-  // watcher cursor (pre-migration vaults) and corrects accumulated rounding drift.
-  try {
-    const reconMap = new Map<string, bigint>();
+    type EventPage = Awaited<ReturnType<typeof queryPackageEvents>>['events'];
+    const allEvents: EventPage = [];
     let reconCursor: string | null = null;
     let reconMore = true;
     while (reconMore) {
-      const { events: reconEvents, nextCursor } = await queryPackageEvents(rebalanceEventType, reconCursor);
-      for (const ev of reconEvents) {
-        const json = ev.contents?.json;
-        if (!json) continue;
-        const vaultId = String(json.vault_id ?? '');
-        if (!vaultMap.has(vaultId)) continue;
-        const direction = Number(json.direction ?? -1);
-        const amount = BigInt(String(json.amount ?? '0'));
-        let p = reconMap.get(vaultId) ?? 0n;
-        if (direction === SWEEP) p += amount;
-        else if (direction === TOPUP) p = p > amount ? p - amount : 0n;
-        reconMap.set(vaultId, p);
-      }
+      const { events: page, nextCursor } = await queryPackageEvents(rebalanceEventType, reconCursor);
+      allEvents.push(...page);
       reconCursor = nextCursor;
       reconMore = nextCursor !== null;
     }
 
     await Promise.allSettled(
-      Array.from(reconMap.entries()).map(async ([vaultId, replayed]) => {
-        const vault = vaultMap.get(vaultId)!;
-        const stored = BigInt(vault.savingsPrincipal ?? '0');
-        const diff = replayed > stored ? replayed - stored : stored - replayed;
-        if (diff > 100n) {
-          await updateSavingsPrincipal(vault.identityKey, replayed);
-          console.log(`[watcher] reconcile ${vaultId.slice(0, 12)}… ${stored} → ${replayed} (diff ${diff})`);
+      Array.from(vaultMap.entries()).map(async ([vaultId, vault]) => {
+        const vaultEvents = allEvents.filter(
+          (ev) => String(ev.contents?.json?.vault_id ?? '') === vaultId,
+        );
+        if (vaultEvents.length === 0) return;
+        const { principal: replayed } = replayPrincipal(vaultEvents);
+        const stored = vault.savingsPrincipal ?? '0';
+        await updateSavingsPrincipal(vault.identityKey, replayed);
+        if (replayed.toString() !== stored) {
+          console.log(`[watcher] reconcile ${vaultId.slice(0, 12)}… ${stored} → ${replayed}`);
         }
       }),
     );
