@@ -208,7 +208,7 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--color-muted)', cursor: 'pointer', fontSize: '1.1rem', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-label="Close">✕</button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
           <ContactsPanel />
         </div>
       </div>
