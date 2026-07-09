@@ -31,6 +31,7 @@ export function BottomNav({
           key={t.id}
           onClick={() => onChange(t.id)}
           style={{
+            position: 'relative',
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
