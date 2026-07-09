@@ -54,7 +54,7 @@ export default async function Page() {
   ]);
 
   return (
-    <div className="page-root" style={{ background: 'var(--color-bg)', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100vh' }}>
+    <div className="page-root" style={{ background: 'var(--color-bg)' }}>
       <OnboardingModal />
 
       <VaultDataProvider initial={{ balances, earnings, activity }}>

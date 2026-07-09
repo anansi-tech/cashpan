@@ -25,7 +25,7 @@ export default function CallbackPage() {
     return (
       <div
         style={{
-          height: '100vh',
+          minHeight: '100dvh',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -46,7 +46,7 @@ export default function CallbackPage() {
   return (
     <div
       style={{
-        height: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
