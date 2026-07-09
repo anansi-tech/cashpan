@@ -263,6 +263,37 @@ export async function queryPackageEvents(
   return { events: nodes, nextCursor };
 }
 
+// ─── OwnerCap lookup (idempotent provision) ───────────────────────────────────
+
+export async function findOwnedOwnerCap(
+  address: string,
+  packageId: string,
+): Promise<{ ownerCapId: string; vaultId: string } | null> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
+    body: JSON.stringify({
+      query: `{
+        address(address: "${address}") {
+          objects(first: 1, filter: { type: "${packageId}::vault::OwnerCap" }) {
+            nodes { address contents { json } }
+          }
+        }
+      }`,
+    }),
+  });
+  const data = await res.json() as {
+    data?: { address?: { objects?: { nodes?: Array<{ address: string; contents?: { json?: Record<string, unknown> | null } | null }> } } };
+    errors?: { message: string }[];
+  };
+  if (data.errors?.length) throw new Error(`GraphQL: ${data.errors[0].message}`);
+  const node = data.data?.address?.objects?.nodes?.[0];
+  if (!node) return null;
+  const vaultId = String(node.contents?.json?.vault_id ?? '');
+  if (!vaultId) return null;
+  return { ownerCapId: node.address, vaultId };
+}
+
 // ─── Coin objects by type (supplement — use fetchWalletBalance for display) ───
 
 type CoinObjNode = {

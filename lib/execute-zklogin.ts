@@ -51,7 +51,7 @@ function dispatchSessionExpired(): never {
   throw new Error('Session expired — sign in again');
 }
 
-async function signAndSubmit(sponsored: { txBytes: string; signature: string }): Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }> {
+async function signAndSubmit(sponsored: { txBytes: string; signature: string }): Promise<{ digest: string; objectTypes?: Record<string, string> }> {
   const ephemeralKey = getEphemeralKeypair();
   const zkProof = getZkProof();
   const maxEpoch = getMaxEpoch();
@@ -68,7 +68,7 @@ async function signAndSubmit(sponsored: { txBytes: string; signature: string }):
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ txBytes: sponsored.txBytes, signatures: [zkLoginSig, sponsored.signature] }),
   });
-  const submitData = await submitRes.json().catch(() => ({})) as { digest?: string; effects?: { status?: { status?: string; error?: string } }; error?: string };
+  const submitData = await submitRes.json().catch(() => ({})) as { digest?: string; objectTypes?: Record<string, string>; error?: string };
   if (!submitRes.ok || submitData.error) {
     const msg = submitData.error ?? `Submission failed (HTTP ${submitRes.status})`;
     console.error('[submit-tx] failed:', submitRes.status, msg);
@@ -77,13 +77,13 @@ async function signAndSubmit(sponsored: { txBytes: string; signature: string }):
   if (!submitData.digest) {
     throw new Error('[submit-tx] empty digest — transaction may not have been submitted');
   }
-  return submitData as { digest: string; effects?: { status?: { status?: string; error?: string } } };
+  return submitData as { digest: string; objectTypes?: Record<string, string> };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Sweep, topup, send, withdraw — plain object-ref PTBs, no unresolved intents. */
-export async function executeTransaction(tx: Transaction): Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }> {
+export async function executeTransaction(tx: Transaction): Promise<{ digest: string; objectTypes?: Record<string, string> }> {
   const session = getSession();
   if (!session) dispatchSessionExpired();
 
@@ -101,7 +101,7 @@ export async function executeTransaction(tx: Transaction): Promise<{ digest: str
 export async function executeDepositTransaction(
   balance: bigint,
   ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>,
-): Promise<{ digest: string; effects?: { status?: { status?: string; error?: string } } }> {
+): Promise<{ digest: string; objectTypes?: Record<string, string> }> {
   const session = getSession();
   if (!session) dispatchSessionExpired();
 

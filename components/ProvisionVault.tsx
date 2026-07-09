@@ -33,70 +33,66 @@ export function ProvisionVault({ packageId, pType, venueId, coinType }: Provisio
       const session = getSession();
       if (!session) throw new Error('Not signed in — please refresh and sign in again');
       const userAddress = session.address;
-
-      const tx = new Transaction();
-
-      // create_vault returns OwnerCap to the caller; we transfer it to the user's address
-      const [ownerCap] = tx.moveCall({
-        target: `${packageId}::vault::create_vault`,
-        typeArguments: [pType, coinType],
-        arguments: [
-          tx.object(venueId),
-          tx.pure.address(userAddress),
-          tx.pure.u64(PER_TX_CAP),
-          tx.pure.u64(DAILY_CAP),
-          tx.pure.u64(OUTFLOW_PER_TX),
-          tx.pure.u64(OUTFLOW_DAILY_CAP),
-        ],
-      });
-      tx.transferObjects([ownerCap], tx.pure.address(userAddress));
-
-      const result = await executeTransaction(tx) as {
-        digest?: string;
-        effects?: { status: { status: string; error?: string }; created?: Array<{ reference: { objectId: string } }> };
-        objectChanges?: Array<{ type: string; objectType?: string; objectId?: string }>;
-      };
-
-      if (result.effects?.status.status !== 'success') {
-        console.error('[ProvisionVault] tx failed', {
-          digest: result.digest,
-          status: result.effects?.status,
-          error: result.effects?.status.error,
-        });
-        throw new Error(result.effects?.status.error ?? `Transaction failed (digest: ${result.digest ?? 'unknown'})`);
-      }
-
-      // Extract vault ID and ownerCap ID from objectChanges
-      const changes = result.objectChanges ?? [];
-      const vaultObj    = changes.find((c) => c.type === 'created' && c.objectType?.includes('::vault::Vault'));
-      const ownerCapObj = changes.find((c) => c.type === 'created' && c.objectType?.includes('::vault::OwnerCap'));
-
-      if (!vaultObj?.objectId || !ownerCapObj?.objectId) {
-        throw new Error('Could not find Vault or OwnerCap in transaction effects');
-      }
-
       const salt = getSalt() ?? '';
       const coinTypeEnv = process.env.NEXT_PUBLIC_COIN_TYPE ?? coinType;
 
+      let vaultId: string | null = null;
+      let ownerCapId: string | null = null;
+
+      // Check for an existing on-chain OwnerCap (idempotent — handles retries and orphaned vaults)
+      const existingRes = await fetch(
+        `/api/vault/find-existing?address=${encodeURIComponent(userAddress)}&packageId=${encodeURIComponent(packageId)}`,
+      );
+      if (existingRes.ok) {
+        const existing = await existingRes.json() as { found: boolean; vaultId?: string; ownerCapId?: string };
+        if (existing.found && existing.vaultId && existing.ownerCapId) {
+          vaultId = existing.vaultId;
+          ownerCapId = existing.ownerCapId;
+        }
+      }
+
+      if (!vaultId || !ownerCapId) {
+        // No existing vault — create one
+        const tx = new Transaction();
+        const [ownerCap] = tx.moveCall({
+          target: `${packageId}::vault::create_vault`,
+          typeArguments: [pType, coinType],
+          arguments: [
+            tx.object(venueId),
+            tx.pure.address(userAddress),
+            tx.pure.u64(PER_TX_CAP),
+            tx.pure.u64(DAILY_CAP),
+            tx.pure.u64(OUTFLOW_PER_TX),
+            tx.pure.u64(OUTFLOW_DAILY_CAP),
+          ],
+        });
+        tx.transferObjects([ownerCap], tx.pure.address(userAddress));
+
+        // executeTransaction throws on failure (submit-tx returns 400 with the Move abort message)
+        const result = await executeTransaction(tx) as { digest: string; objectTypes?: Record<string, string> };
+        const objectTypes = result.objectTypes ?? {};
+
+        vaultId = Object.keys(objectTypes).find((id) => objectTypes[id].includes('::vault::Vault<')) ?? null;
+        ownerCapId = Object.keys(objectTypes).find((id) => objectTypes[id].includes('::vault::OwnerCap')) ?? null;
+
+        if (!vaultId || !ownerCapId) {
+          console.error('[ProvisionVault] Vault/OwnerCap not in objectTypes:', objectTypes, 'digest:', result.digest);
+          throw new Error(`Created vault but could not locate IDs (digest: ${result.digest})`);
+        }
+      }
+
+      // Register the vault in Mongo (upsert — safe to call on retries)
       const regRes = await fetch('/api/vault/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vaultId: vaultObj.objectId,
-          ownerCapId: ownerCapObj.objectId,
-          payoutAddress: userAddress,
-          salt,
-          coinType: coinTypeEnv,
-        }),
+        body: JSON.stringify({ vaultId, ownerCapId, payoutAddress: userAddress, salt, coinType: coinTypeEnv }),
       });
-
       if (!regRes.ok) {
         const err = await regRes.json() as { error?: string };
         throw new Error(err.error ?? 'Vault registration failed');
       }
 
       setStatus('done');
-      // Reload so the server component picks up the new vault record
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Provisioning failed');
