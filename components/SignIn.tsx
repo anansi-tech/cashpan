@@ -6,6 +6,11 @@ import { useState } from 'react';
 export function SignIn() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [flash] = useState<string | null>(() => {
+    const msg = sessionStorage.getItem('cashpan_flash');
+    if (msg) sessionStorage.removeItem('cashpan_flash');
+    return msg;
+  });
 
   async function handleSignIn() {
     setLoading(true);
@@ -76,6 +81,10 @@ export function SignIn() {
         </svg>
         {loading ? 'Redirecting…' : 'Sign in with Google'}
       </button>
+
+      {flash && (
+        <p style={{ color: 'var(--color-muted)', fontSize: '0.8rem', margin: 0 }}>{flash}</p>
+      )}
 
       {error && (
         <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: 0 }}>{error}</p>

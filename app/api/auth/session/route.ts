@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,13 @@ export async function POST(req: Request) {
     maxAge: 60 * 60 * 24 * 7, // 7 days
   });
   return res;
+}
+
+// GET /api/auth/session  — client checks whether server cookie is still set
+export async function GET() {
+  const cookieStore = await cookies();
+  const has_session = !!cookieStore.get('cashpan-sub')?.value;
+  return NextResponse.json({ has_session });
 }
 
 // DELETE /api/auth/session  — clear cookie on sign out

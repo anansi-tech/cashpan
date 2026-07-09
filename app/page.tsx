@@ -11,6 +11,7 @@ import { ProvisionVault } from '@/components/ProvisionVault';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { VaultDataProvider } from '@/components/VaultDataProvider';
 import { AccountMenu } from '@/components/AccountMenu';
+import { SessionGuard } from '@/components/SessionGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,7 @@ export default async function Page() {
       <OnboardingModal />
 
       <VaultDataProvider initial={{ balances, earnings, activity }}>
+        <SessionGuard />
         {/* Header — border spans full width, content centered at 1200px */}
         <header style={{ borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem' }}>

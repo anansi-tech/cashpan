@@ -42,11 +42,16 @@ async function callSponsor(body: unknown): Promise<{ txBytes: string; signature:
   return res.json() as Promise<{ txBytes: string; signature: string }>;
 }
 
+function dispatchSessionExpired(): never {
+  window.dispatchEvent(new CustomEvent('cashpan:session-expired'));
+  throw new Error('Session expired — sign in again');
+}
+
 async function signAndSubmit(sponsored: { txBytes: string; signature: string }): Promise<{ digest: string }> {
   const ephemeralKey = getEphemeralKeypair();
   const zkProof = getZkProof();
   const maxEpoch = getMaxEpoch();
-  if (!ephemeralKey || !zkProof) throw new Error('Not authenticated. Please sign in.');
+  if (!ephemeralKey || !zkProof) dispatchSessionExpired();
 
   const addressSeed = buildAddressSeed();
   const sponsoredBytes = Uint8Array.from(atob(sponsored.txBytes), (c) => c.charCodeAt(0));
@@ -72,7 +77,7 @@ async function signAndSubmit(sponsored: { txBytes: string; signature: string }):
 /** Sweep, topup, send, withdraw — plain object-ref PTBs, no unresolved intents. */
 export async function executeTransaction(tx: Transaction): Promise<{ digest: string }> {
   const session = getSession();
-  if (!session) throw new Error('Not authenticated. Please sign in.');
+  if (!session) dispatchSessionExpired();
 
   tx.setSender(session.address);
   // V1 binary serialization — safe because these tx types use only object refs + pure args.
@@ -90,7 +95,7 @@ export async function executeDepositTransaction(
   ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>,
 ): Promise<{ digest: string }> {
   const session = getSession();
-  if (!session) throw new Error('Not authenticated. Please sign in.');
+  if (!session) dispatchSessionExpired();
 
   const sponsored = await callSponsor({
     action: 'deposit',
