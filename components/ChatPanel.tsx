@@ -202,9 +202,12 @@ function ChatMessage({
 
   if (!text && proposalParts.length === 0) return null;
 
-  // Hide the "Queued a send…" text once the user confirms the action card
   const hasConfirmedProposal = proposalParts.some((p) => confirmed.has(p['toolCallId'] as string));
-  const showText = text && !hasConfirmedProposal;
+  // The ConfirmCard IS the response for an actionable proposal — suppress any
+  // narration the model emits alongside it (prompt also says output nothing).
+  // Blocked proposals keep their text: the model explains why and what to do.
+  const hasActionableProposal = proposalParts.some((p) => !((p['output'] as Proposal | undefined)?.blocked));
+  const showText = text && !hasConfirmedProposal && !hasActionableProposal;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: isUser ? 'flex-end' : 'flex-start' }}>

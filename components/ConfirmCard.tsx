@@ -84,57 +84,58 @@ function HeadlineSentence({ proposal }: { proposal: Proposal }) {
   return <span>Withdraw {a} to your wallet?</span>;
 }
 
+// One row per affected pocket, both tenses: "SPEND  $6.00 → $1.00".
+// Showing only the after-value made it read as the CURRENT balance.
+function PocketRow({ icon, label, before, after, color }: {
+  icon: string; label: string; before: number; after: number; color: string;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.625rem' }}>
+      <span style={{ fontSize: '0.625rem', fontWeight: 700, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>
+        {icon} {label}
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
+        <span style={{ color: 'var(--color-muted)' }}>${fmtAmt(before)}</span>
+        <span style={{ color: 'var(--color-muted)' }}> → </span>
+        <span style={{ fontWeight: 700, color }}>${fmtAmt(Math.max(0, after))}</span>
+      </span>
+    </div>
+  );
+}
+
 function OutcomeStrip({ proposal }: { proposal: Proposal }) {
   const amt = parseFloat(proposal.amountSui);
   const spend = parseFloat(proposal.spendBalance);
   const savings = 'savingsSui' in proposal ? parseFloat((proposal as { savingsSui: string }).savingsSui) : 0;
 
-  const stripStyle = { background: 'rgba(10,15,30,0.5)', borderRadius: '0.625rem', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.625rem' } as const;
-  const lbl = { fontSize: '0.625rem', fontWeight: 700, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.09em', display: 'block' } as const;
+  const stripStyle = { background: 'rgba(10,15,30,0.5)', borderRadius: '0.625rem', padding: '0.625rem 0.875rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } as const;
+  const spendRow = (after: number) =>
+    <PocketRow icon="💵" label="Spend" before={spend} after={after} color="var(--color-liquid)" />;
+  const saveRow = (after: number) =>
+    <PocketRow icon="💰" label="Save" before={savings} after={after} color="var(--color-savings-bright)" />;
 
   if (proposal.action === 'send' || proposal.action === 'withdrawToMe') {
+    return <div style={stripStyle}>{spendRow(spend - amt)}</div>;
+  }
+  if (proposal.action === 'sweep') {
     return (
       <div style={stripStyle}>
-        <div>
-          <span style={lbl}>💵 Spend</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-liquid)' }}>
-            ${fmtAmt(Math.max(0, spend - amt))} left
-          </span>
-        </div>
+        {spendRow(spend - amt)}
+        {saveRow(savings + amt)}
       </div>
     );
   }
-  const isSweep = proposal.action === 'sweep';
-  const srcLabel = isSweep ? '💵 Spend' : '💰 Save';
-  const srcVal   = isSweep ? spend - amt : savings - amt;
-  const srcColor = isSweep ? 'var(--color-liquid)' : 'var(--color-savings-bright)';
-  const dstLabel = isSweep ? '💰 Save' : '💵 Spend';
-  const dstVal   = isSweep ? savings + amt : spend + amt;
-  const dstColor = isSweep ? 'var(--color-savings-bright)' : 'var(--color-liquid)';
+  // topup — a full drain redeems the position exactly, so Save lands on 0.
   return (
     <div style={stripStyle}>
-      <div style={{ flex: 1 }}>
-        <span style={lbl}>{srcLabel}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: srcColor }}>
-          ${fmtAmt(Math.max(0, srcVal))}
-        </span>
-      </div>
-      <span style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>→</span>
-      <div style={{ flex: 1, textAlign: 'right' }}>
-        <span style={lbl}>{dstLabel}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: dstColor }}>
-          ${fmtAmt(Math.max(0, dstVal))}
-        </span>
-      </div>
+      {saveRow(proposal.drainAll ? 0 : savings - amt)}
+      {spendRow(spend + amt)}
     </div>
   );
 }
 
 function DetailsDisclosure({ proposal }: { proposal: Proposal }) {
   const [open, setOpen] = useState(false);
-  const amt     = parseFloat(proposal.amountSui);
-  const spend   = parseFloat(proposal.spendBalance);
-  const savings = 'savingsSui' in proposal ? parseFloat((proposal as { savingsSui: string }).savingsSui) : 0;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -159,70 +160,25 @@ function DetailsDisclosure({ proposal }: { proposal: Proposal }) {
                   <CopyableAddress address={proposal.recipient} />
                 </div>
               )}
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
             </>
           )}
           {proposal.action === 'withdrawToMe' && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                <span style={{ color: 'var(--color-muted)' }}>To</span>
-                <CopyableAddress address={proposal.payoutAddress} />
-              </div>
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-            </>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+              <span style={{ color: 'var(--color-muted)' }}>To</span>
+              <CopyableAddress address={proposal.payoutAddress} />
+            </div>
           )}
-          {proposal.action === 'sweep' && (
-            <>
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Save" value={`${fmtAmt((proposal as { savingsSui: string }).savingsSui)} ${COIN_SYM}`} dim />
-            </>
-          )}
-          {proposal.action === 'topup' && (
-            <>
-              <ProposalDetail label="Save" value={`${fmtAmt((proposal as { savingsSui: string }).savingsSui)} ${COIN_SYM}`} dim />
-              <ProposalDetail label="Spend" value={`${fmtAmt(proposal.spendBalance)} ${COIN_SYM}`} dim />
-            </>
-          )}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '0.4rem', marginTop: '0.15rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-            <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>After this</div>
-            {(proposal.action === 'send' || proposal.action === 'withdrawToMe') && (
-              <EffectRow label="Spend" before={spend} after={spend - amt} />
-            )}
-            {proposal.action === 'sweep' && (
-              <>
-                <EffectRow label="Spend" before={spend} after={spend - amt} />
-                <EffectRow label="Save" before={savings} after={savings + amt} />
-              </>
-            )}
-            {proposal.action === 'topup' && (
-              <>
-                <EffectRow label="Save" before={savings} after={savings - amt} />
-                <EffectRow label="Spend" before={spend} after={spend + amt} />
-              </>
-            )}
-          </div>
         </div>
       )}
     </div>
   );
 }
 
-function EffectRow({ label, before, after }: { label: string; before: number; after: number }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem' }}>
-      <span style={{ color: 'var(--color-muted)', minWidth: '3.25rem', flexShrink: 0 }}>{label}:</span>
-      <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-        {fmtAmt(before)} → {fmtAmt(Math.max(0, after))} {COIN_SYM}
-      </span>
-    </div>
-  );
-}
-
-function ProposalDetail({ label, value, dim }: { label: string; value: string; dim?: boolean }) {
+function ProposalDetail({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
       <span style={{ color: 'var(--color-muted)' }}>{label}</span>
-      <span style={{ color: dim ? 'var(--color-muted-2)' : 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+      <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
         {value}
       </span>
     </div>
