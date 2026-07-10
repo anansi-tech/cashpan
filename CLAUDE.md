@@ -7,14 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Move (on-chain)** — run from `move/`:
 ```sh
 sui move build           # compile
-sui move test            # all tests (40 total: 17 vault + 9 yield_venue + 14 test_usd)
+sui move test            # all tests (24, all in vault_tests — incl. event-emission tests)
 sui move test <test_fn>  # single test by name
 ```
 
 **TypeScript / web** — run from repo root:
 ```sh
 npm run dev              # Next.js dev server
-npm test                 # Jest unit tests (24 total: decide 13 + principal-replay 11)
+npm test                 # Jest unit tests (39 total: decide 13 + principal-replay 13 + format 13)
 npm run setup            # publish Move package + create YieldVenue + mint test_usd + write .env
                          # NOTE: does NOT create a vault (vaults are provisioned per-user at sign-in)
 npm run agent            # optional standalone rebalance loop (legacy; needs VAULT_ID etc. in .env)
@@ -37,6 +37,8 @@ Vault fields:
 - `liquid: Balance<T>` — the spend pocket
 - `savings_position: Option<Position>` — the savings pocket, as a position in the YieldVenue
 - `venue_id: ID` — security check: `rebalance` and `redeem_position` assert the passed venue matches this ID (`EWrongVenue`)
+
+`redeem_position` is the full-drain path ("move everything to Spend"): `withdraw_all` on the cTokens, position destroyed, emits `RebalanceEvent` (direction TOPUP, actual redeemed amount, `savings_value_after: 0`). Every balance-changing function emits — see the ledger-completeness invariant below.
 
 **`yield_venue.move`** — `YieldVenue<T>` holds deposited principal and an interest reserve. A `Position` tracks `{principal, entry_epoch}`. Accrual formula: `interest = principal * rate_bps * elapsed / (10_000 * period_epochs)`. Partial withdrawals use pro-rata principal reduction. `// SWAP POINT` comments on `deposit`, `withdraw`, `current_value`, and `fund_reserve` mark where a real protocol (Scallop, Navi, etc.) plugs in.
 
@@ -144,6 +146,33 @@ without backfilling broke production. New field/semantics → backfill existing
 data, always. Corollary: prefer deriving values from chain state on-read over
 storing them — a derived value has no backfill, no drift, and no reconcile job
 (see `lib/principal-replay.ts`).
+
+## Package upgrades (standing)
+
+The mainnet package has been upgraded once (v2, 2026-07-10: added the
+`redeem_position` emit). Rules learned from that upgrade:
+
+- **Two package ids after any upgrade.** `PACKAGE_ID` (env) is the ORIGINAL id —
+  it identifies types and events forever (Sui defining-id semantics) and is used
+  for all event filters. `PACKAGE_ID_LATEST` (env) is the newest package in the
+  upgrade chain and is used for ALL `moveCall` targets — calls to the original id
+  execute the OLD bytecode; there is no automatic routing. Code falls back to
+  `PACKAGE_ID` when `PACKAGE_ID_LATEST` is unset. **After every upgrade, update
+  `PACKAGE_ID_LATEST` locally AND in the Vercel env dashboard** — until then,
+  production runs the previous bytecode.
+- **Compatible upgrades cannot remove modules.** `test_usd` was deleted from the
+  source tree during mainnet cleanup and had to be restored — it is part of the
+  published package permanently. Do not delete Move modules that have shipped.
+- **Procedure**: `sui client upgrade --upgrade-capability <cap> --dry-run .` first
+  (from `move/`), then without `--dry-run`. The UpgradeCap is
+  `0xb0ea4698ac0239e3ce634902d177d74ecfe71e33b51cdc51bb17425303c48f25`, owned by
+  the deploy address. The CLI maintains `move/Published.toml` (original-id,
+  published-at, version) — commit it after each upgrade. Do NOT add an
+  `[addresses]` section to Move.toml; it flips the manifest to legacy mode and
+  breaks the build against new-style deps.
+- Per the standing dependency rule, any upgrade rides its own branch with full
+  money-flow re-verification (simulation gate: one PTB sweep → redeem →
+  `savings_balance`, assert emission + exact zero + original-id event type).
 
 ## Dependency pins (standing)
 

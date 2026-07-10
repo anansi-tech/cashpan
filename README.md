@@ -82,7 +82,8 @@ Sign in with Google → vault is provisioned on first sign-in → use the Receiv
 |----------|--------|-------------|
 | `SUI_RPC_URL` | setup default | Sui fullnode RPC |
 | `NEXT_PUBLIC_SUI_NETWORK` | setup default | `testnet` or `mainnet` |
-| `PACKAGE_ID` | `npm run setup` | Published Move package |
+| `PACKAGE_ID` | `npm run setup` | Original Move package id — types & event filters |
+| `PACKAGE_ID_LATEST` | manual, after upgrades | Latest package in the upgrade chain — moveCall targets (falls back to `PACKAGE_ID`) |
 | `VENUE_ID` | `npm run setup` | YieldVenue shared object |
 | `TREASURY_CAP_ID` | `npm run setup` | test_usd TreasuryCap (testnet only) |
 | `COIN_TYPE` | `npm run setup` | Full coin type string |
@@ -118,7 +119,7 @@ npm run dev          # Next.js dev server
 
 # Move (run from move/)
 sui move build
-sui move test        # 40 tests: 17 vault + 9 yield_venue + 14 test_usd
+sui move test        # 24 tests (vault_tests, incl. event-emission asserts)
 
 # TypeScript unit tests
 npm test             # 24 tests: decide (13) + principal-replay (11)
