@@ -6,7 +6,7 @@
 
 // COIN_DECIMALS=6 is set in tests/setup-env.ts (jest setupFiles) — it must be
 // in place before coin-config.ts loads, since that module reads env at import.
-import { floorToDecimals, formatMoney, formatMoneyHuman } from '../lib/format.js';
+import { floorToDecimals, formatMoney, formatMoneyHuman, floorCentsBase } from '../lib/format.js';
 import { baseToHuman, humanToBase } from '../lib/coin-config.js';
 
 describe('floorToDecimals', () => {
@@ -50,6 +50,22 @@ describe('formatMoney', () => {
 
   test('small values ungrouped', () => {
     expect(formatMoney(995_000n)).toBe('0.99');
+  });
+});
+
+describe('floorCentsBase', () => {
+  test('floors base units to whole-cent multiples', () => {
+    expect(floorCentsBase(995_000n)).toBe(990_000n);
+    expect(floorCentsBase(1_000_000n)).toBe(1_000_000n);
+  });
+
+  test('chat total arithmetic matches dashboard: sum of floored pockets', () => {
+    // Two 0.995 pockets: floor-then-sum = 1.98; sum-then-floor would say 1.99.
+    const liquid = 995_000n;
+    const savings = 995_000n;
+    const total = floorCentsBase(liquid) + floorCentsBase(savings);
+    expect(formatMoney(total)).toBe('1.98');
+    expect(formatMoney(liquid + savings)).toBe('1.99'); // the trap avoided
   });
 });
 

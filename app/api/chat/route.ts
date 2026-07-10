@@ -11,7 +11,8 @@
 
 import { streamText, tool, convertToModelMessages, jsonSchema, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { baseToHuman, COIN_SYMBOL } from '@/lib/coin-config';
+import { COIN_SYMBOL } from '@/lib/coin-config';
+import { formatMoney, floorToDecimals, floorCentsBase } from '@/lib/format';
 import { getBalances, getEarnings, getAgentActivity, getConfig } from '@/lib/read-layer';
 import {
   proposeSend,
@@ -59,6 +60,7 @@ If the user's message doesn't map to a balance read, a money move, or a clear qu
 
 ## Hard rules
 - All amounts are ${COIN_SYMBOL}. Speak in dollars ($10.00, $50, etc.), never in raw base units.
+- Money values in tool results are pre-formatted display strings (e.g. "1,234.56"). Repeat them EXACTLY as given with a $ prefix — never recompute, reformat, or round them.
 - Never sign or submit. The propose tools only compute; tapping Confirm is what executes.`;
 }
 
@@ -89,18 +91,21 @@ export async function POST(req: Request) {
         }),
         execute: async () => {
           const raw = await getBalances(vaultId);
-          const h = (s: string) => baseToHuman(s, 6);
+          // Pre-formatted to the cent, floored — identical to the dashboard.
+          // Total = sum of floored pockets (same arithmetic as LiveDashboard),
+          // so the three numbers always reconcile.
+          const liquid = floorCentsBase(raw.liquid);
+          const savings = floorCentsBase(raw.savingsValue);
           return {
-            [`spendPocket${COIN_SYMBOL}`]: h(raw.liquid),
-            [`savingsPocket${COIN_SYMBOL}`]: h(raw.savingsValue),
-            [`total${COIN_SYMBOL}`]: h(raw.total),
-            currentEpoch: raw.currentEpoch,
+            [`spendPocket${COIN_SYMBOL}`]: formatMoney(liquid),
+            [`savingsPocket${COIN_SYMBOL}`]: formatMoney(savings),
+            [`total${COIN_SYMBOL}`]: formatMoney(liquid + savings),
           };
         },
       }),
 
       getEarnings: tool({
-        description: 'Get accrued interest earned and yield rate (bps/epoch).',
+        description: 'Get accrued interest earned and current yield rate.',
         inputSchema: jsonSchema<Record<string, never>>({
           type: 'object',
           properties: {},
@@ -108,9 +113,10 @@ export async function POST(req: Request) {
         }),
         execute: async () => {
           const raw = await getEarnings(vaultId);
+          // Same precision as the dashboard's earned chip (4dp, floored).
           return {
-            [`accrued${COIN_SYMBOL}`]: baseToHuman(raw.accrued, 6),
-            aprBps: raw.aprBps,
+            [`accrued${COIN_SYMBOL}`]: floorToDecimals(raw.accrued, 4),
+            apr: `${(Number(raw.aprBps) / 100).toFixed(1)}%`,
           };
         },
       }),
@@ -126,11 +132,11 @@ export async function POST(req: Request) {
         }),
         execute: async ({ limit }: { limit?: number }) => {
           const events = await getAgentActivity(limit ?? 10, vaultId);
-          return events.map(({ text, type, direction, epochStr, timestampMs }) => ({
+          // No epoch fields — internal jargon, not user-facing.
+          return events.map(({ text, type, direction, timestampMs }) => ({
             text,
             type,
             direction,
-            epochStr,
             timestampMs,
           }));
         },
@@ -145,14 +151,13 @@ export async function POST(req: Request) {
         }),
         execute: async () => {
           const raw = await getConfig(vaultId);
-          const b = (s: string) => baseToHuman(s, 4);
           return {
             buffer: raw.buffer,
             band: raw.band,
-            perTxCap: b(raw.perTxCap),
-            dailyCap: b(raw.dailyCap),
-            outflowPerTxCap: b(raw.outflowPerTxCap),
-            outflowDailyCap: b(raw.outflowDailyCap),
+            perTxCap: formatMoney(raw.perTxCap),
+            dailyCap: formatMoney(raw.dailyCap),
+            outflowPerTxCap: formatMoney(raw.outflowPerTxCap),
+            outflowDailyCap: formatMoney(raw.outflowDailyCap),
             payoutAddress: raw.payoutAddress,
             symbol: COIN_SYMBOL,
           };

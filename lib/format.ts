@@ -38,6 +38,16 @@ export function floorToDecimals(base: bigint | string | number, decimals = 2): s
   return `${neg ? '-' : ''}${whole}${decimals > 0 ? `.${frac}` : ''}`;
 }
 
+/**
+ * Floor base units down to a whole-cent multiple (bigint-exact).
+ * Use before summing pockets so the total matches the sum of displayed values
+ * (floor(a) + floor(b) can differ from floor(a + b) by a cent).
+ */
+export function floorCentsBase(base: bigint | string | number): bigint {
+  const cent = 10n ** BigInt(Math.max(0, coinDecimals() - 2));
+  return (toBase(base) / cent) * cent;
+}
+
 /** Grouped display string: "1,234.56". Floors — see module doc. */
 export function formatMoney(base: bigint | string | number, decimals = 2): string {
   const s = floorToDecimals(base, decimals);
