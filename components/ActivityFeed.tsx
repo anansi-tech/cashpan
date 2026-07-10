@@ -241,7 +241,14 @@ export function ActivityFeed({ flush }: { flush?: boolean }) {
     }
   };
 
-  const displayed = expanded ? extraEvents : events;
+  // When expanded, merge the live page-1 events (refreshed by the 5s poll) on
+  // top of the deeper one-time snapshot — otherwise the feed freezes at the
+  // Show-more click and new activity never appears without a hard refresh.
+  // Key includes more than digest: one tx can emit multiple events.
+  const evKey = (e: ActivityEvent) => `${e.digest}|${e.type}|${e.direction ?? ''}|${e.amount}|${e.timestampMs ?? ''}`;
+  const displayed = expanded
+    ? [...events, ...extraEvents.filter((e) => !events.some((p) => evKey(p) === evKey(e)))]
+    : events;
 
   const handleShowMore = async () => {
     setLoadingMore(true);
