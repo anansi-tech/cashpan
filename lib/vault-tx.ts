@@ -78,6 +78,25 @@ export function buildSweepTx(proposal: SweepProposal, ctx: VaultTxContext): Tran
 }
 
 export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Transaction {
+  // "Move everything": redeem_position drains the cToken position exactly —
+  // savings ends at 0 regardless of interest accrued since the proposal was
+  // computed. A numeric amount here would race accrual and leave dust.
+  if (proposal.drainAll) {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${ctx.packageId}::vault::redeem_position`,
+      typeArguments: [ctx.pType, ctx.coinType],
+      arguments: [
+        tx.object(ctx.ownerCapId),
+        tx.object(ctx.vaultId),
+        tx.object(ctx.venueId),
+        tx.object(ctx.lendingMarketId),
+        tx.object('0x0000000000000000000000000000000000000000000000000000000000000006'),
+      ],
+    });
+    return tx;
+  }
+
   const tx = new Transaction();
   tx.moveCall({
     target: `${ctx.packageId}::vault::owner_rebalance`,

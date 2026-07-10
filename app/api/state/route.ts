@@ -71,6 +71,8 @@ export async function GET(): Promise<Response> {
     aprBps: String(aprBps),
   };
 
+  // Belt over force-dynamic: forbid every cache layer (CDN, proxy, browser)
+  // from holding this response — a confirmed tx must be visible on the next poll.
   return NextResponse.json({
     balances,
     earnings,
@@ -79,5 +81,5 @@ export async function GET(): Promise<Response> {
     proposals: balances ? computeProposals(walletBalance, balances, settings) : [],
     contacts,
     settings,
-  });
+  }, { headers: { 'Cache-Control': 'no-store' } });
 }

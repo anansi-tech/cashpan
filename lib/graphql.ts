@@ -91,6 +91,7 @@ export async function fetchVaultState(
 ): Promise<VaultStateGQL> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
@@ -121,6 +122,7 @@ export async function fetchVaultState(
 export async function fetchWalletBalance(address: string, coinType: string): Promise<string> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
@@ -149,6 +151,7 @@ export interface VaultBasic {
 export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
@@ -177,6 +180,7 @@ export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
 export async function fetchVaultJson(vaultId: string): Promise<Record<string, unknown>> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{ vault: object(address: "${vaultId}") { asMoveObject { contents { json } } } }`,
@@ -207,6 +211,7 @@ export async function fetchEventsGQL(
 ): Promise<GQLEventNode[]> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
@@ -240,6 +245,7 @@ export async function queryPackageEvents(
   const afterClause = cursor ? `, after: ${JSON.stringify(cursor)}` : '';
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
@@ -275,6 +281,7 @@ export async function findOwnedOwnerCap(
 ): Promise<{ ownerCapId: string; vaultId: string } | null> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{
@@ -311,6 +318,7 @@ export async function getCoinsByType(
 ): Promise<{ coinObjectId: string; balance: string }[]> {
   const res = await fetch(GRAPHQL_URL, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
     body: JSON.stringify({
       query: `{

@@ -65,6 +65,8 @@ function blockMessage(proposal: Proposal, reason: BlockReason): string {
       return `Your Spend pocket only has ${liquid} ${COIN_SYM} — not enough for this.`;
     case 'no_savings':
       return `Your Save pocket only has ${savings ?? '?'} ${COIN_SYM} — not enough to move that amount.`;
+    case 'keep_exceeds_savings':
+      return `Your Save pocket only has ${savings ?? '?'} ${COIN_SYM} — there's nothing left to move after keeping that much.`;
   }
 }
 
@@ -72,7 +74,12 @@ function HeadlineSentence({ proposal }: { proposal: Proposal }) {
   const amtStyle = { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-savings-bright)' } as const;
   const a = <span style={amtStyle}>${fmtAmt(proposal.amountSui)}</span>;
   if (proposal.action === 'sweep') return <span>Move {a} from Spend to Save?</span>;
-  if (proposal.action === 'topup') return <span>Move {a} from Save to Spend?</span>;
+  if (proposal.action === 'topup') {
+    // drainAll redeems the full position — the exact amount includes interest
+    // accrued after this snapshot, so present it as "everything (~$X)".
+    if (proposal.drainAll) return <span>Move everything (~{a}) from Save to Spend?</span>;
+    return <span>Move {a} from Save to Spend?</span>;
+  }
   if (proposal.action === 'send') return <span>Send {a} to {proposal.payeeLabel}?</span>;
   return <span>Withdraw {a} to your wallet?</span>;
 }

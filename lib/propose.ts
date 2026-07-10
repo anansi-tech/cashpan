@@ -30,7 +30,8 @@ const mistToSui = (base: bigint) => baseToHuman(base, 6);
 export type BlockReason =
   | 'not_a_payee'
   | 'insufficient_liquid'
-  | 'no_savings';
+  | 'no_savings'
+  | 'keep_exceeds_savings';
 
 export interface SendProposal {
   action: 'send';
@@ -62,6 +63,12 @@ export interface TopupProposal {
   amountSui: string;
   savingsSui: string;
   spendBalance: string;
+  /**
+   * True → execute via vault::redeem_position (drains the cToken position
+   * exactly, savings ends at 0). A numeric topup for "everything" would race
+   * accruing interest and rounding; amountSui is then only a display snapshot.
+   */
+  drainAll?: boolean;
   blocked?: BlockReason;
 }
 
@@ -142,18 +149,42 @@ export async function proposeSweep(amountSuiStr: string | undefined, vaultId: st
   return base;
 }
 
-export async function proposeTopup(amountSuiStr: string, vaultId: string): Promise<TopupProposal> {
+/**
+ * Topup (Save → Spend).
+ *
+ * - amount omitted → "move everything": full-redeem proposal (drainAll).
+ * - keepInSave set → "keep $X, move the rest": remainder computed in raw base
+ *   units; a zero keep degenerates to drainAll.
+ * - numeric amount → plain numeric topup, validated against live savings.
+ */
+export async function proposeTopup(
+  amountSuiStr: string | undefined,
+  vaultId: string,
+  keepInSaveStr?: string,
+): Promise<TopupProposal> {
   const vault = await fetchVaultState(vaultId);
-  const amountMist = suiToMist(amountSuiStr);
 
   const base: TopupProposal = {
     action: 'topup',
-    amountSui: mistToSui(amountMist),
+    amountSui: mistToSui(vault.savingsValue),
     savingsSui: mistToSui(vault.savingsValue),
     spendBalance: mistToSui(vault.liquid),
   };
 
+  if (vault.savingsValue === 0n) return { ...base, blocked: 'no_savings' };
+
+  if (keepInSaveStr !== undefined) {
+    const keepMist = suiToMist(keepInSaveStr);
+    if (keepMist >= vault.savingsValue) return { ...base, blocked: 'keep_exceeds_savings' };
+    if (keepMist === 0n) return { ...base, drainAll: true };
+    const amountMist = vault.savingsValue - keepMist; // raw base units, no rounding
+    return { ...base, amountSui: mistToSui(amountMist) };
+  }
+
+  if (amountSuiStr === undefined) return { ...base, drainAll: true };
+
+  const amountMist = suiToMist(amountSuiStr);
   if (vault.savingsValue < amountMist) return { ...base, blocked: 'no_savings' };
 
-  return base;
+  return { ...base, amountSui: mistToSui(amountMist) };
 }

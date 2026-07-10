@@ -46,7 +46,7 @@ When the user's intent to move money is clear, immediately call the matching pro
 - proposeSend({ amount, payeeLabel }) — "send mom $10", "pay Alex 5"
 - proposeWithdrawToMe({ amount }) — "give me back $10", "withdraw to my wallet"
 - proposeSweep({ amount? }) — "put aside $50", "save $20", "move to savings"
-- proposeTopup({ amount }) — "move $20 to spending", "top up", "I need cash"
+- proposeTopup({ amount?, keepInSave? }) — "move $20 to spending", "top up", "I need cash". Omit amount for "move everything/all/max"; use keepInSave for "keep $X, move the rest". Never compute those amounts from balances yourself.
 
 Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak dollars.
 
@@ -211,16 +211,19 @@ export async function POST(req: Request) {
 
       proposeTopup: tool({
         description:
-          'Propose moving from savings to the spend pocket (topup). Call this for "move to spending", "top up", "I need cash".',
-        inputSchema: jsonSchema<{ amount: string }>({
+          'Propose moving from savings to the spend pocket (topup). Call this for "move to spending", "top up", "I need cash". ' +
+          'OMIT amount entirely when the user wants everything ("move all/everything/max to spend") — that drains Save exactly to $0. ' +
+          'Use keepInSave (and omit amount) for "keep $X in save, move the rest". Never compute these amounts yourself.',
+        inputSchema: jsonSchema<{ amount?: string; keepInSave?: string }>({
           type: 'object',
           properties: {
-            amount: { type: 'string', description: 'Amount, e.g. "10"' },
+            amount: { type: 'string', description: 'Amount, e.g. "10". Omit to move everything.' },
+            keepInSave: { type: 'string', description: 'Amount to leave in Save; the rest moves to Spend. E.g. "19".' },
           },
-          required: ['amount'],
           additionalProperties: false,
         }),
-        execute: async ({ amount }: { amount: string }) => proposeTopup(amount, vaultId),
+        execute: async ({ amount, keepInSave }: { amount?: string; keepInSave?: string }) =>
+          proposeTopup(amount, vaultId, keepInSave),
       }),
     },
   });
