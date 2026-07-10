@@ -79,20 +79,6 @@ function BrainCard({
         await executeTransaction(tx);
       }
       setState('success');
-
-      // Update cost-basis immediately rather than waiting for the 5-min cron.
-      if (proposal.type === 'sweep-to-save' || proposal.type === 'topup-from-save') {
-        fetch('/api/principal-update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            direction: proposal.type === 'sweep-to-save' ? 'sweep' : 'topup',
-            amountSui: proposal.amountSui,
-            savingsSui: proposal.savingsBalance,
-          }),
-        }).catch(() => {});
-      }
-
       setTimeout(onSuccess, 1200);
     } catch (e) {
       setState('error');

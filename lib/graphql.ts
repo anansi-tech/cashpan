@@ -226,7 +226,10 @@ export async function fetchEventsGQL(
 
 export interface PackageEventsPage {
   events: GQLEventNode[];
+  /** Cursor to continue paging; null when this was the last page. */
   nextCursor: string | null;
+  /** Cursor of the last event in this page (set even on the last page) — for checkpointing. */
+  endCursor: string | null;
 }
 
 export async function queryPackageEvents(
@@ -259,8 +262,9 @@ export async function queryPackageEvents(
   if (data.errors?.length) throw new Error(`GraphQL events: ${data.errors[0].message}`);
   const nodes = data.data?.events?.nodes ?? [];
   const pageInfo = data.data?.events?.pageInfo;
-  const nextCursor = pageInfo?.hasNextPage ? (pageInfo.endCursor ?? null) : null;
-  return { events: nodes, nextCursor };
+  const endCursor = pageInfo?.endCursor ?? null;
+  const nextCursor = pageInfo?.hasNextPage ? endCursor : null;
+  return { events: nodes, nextCursor, endCursor };
 }
 
 // ─── OwnerCap lookup (idempotent provision) ───────────────────────────────────

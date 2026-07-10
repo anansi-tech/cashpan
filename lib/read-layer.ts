@@ -14,6 +14,7 @@ import { bcs } from '@mysten/sui/bcs';
 import { baseToHuman, COIN_SYMBOL } from './coin-config';
 import { getLiveAprBps, LENDING_MARKET_ID, LENDING_MARKET_TYPE, graphqlClient, fetchVaultBasic, fetchVaultJson, fetchEventsGQL } from './graphql';
 import type { GQLEventNode } from './graphql';
+import { getReplayedPrincipal } from './principal-replay';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
@@ -106,10 +107,13 @@ export async function getBalances(vaultId: string): Promise<Balances> {
   };
 }
 
-export async function getEarnings(vaultId: string, savingsPrincipalStr = '0'): Promise<Earnings> {
-  const [balances, aprBps] = await Promise.all([getBalances(vaultId), getLiveAprBps()]);
+export async function getEarnings(vaultId: string): Promise<Earnings> {
+  const [balances, aprBps, principal] = await Promise.all([
+    getBalances(vaultId),
+    getLiveAprBps(),
+    getReplayedPrincipal(vaultId),
+  ]);
   const savingsValue = BigInt(balances.savingsValue);
-  const principal = BigInt(savingsPrincipalStr);
   const accrued = savingsValue > principal ? (savingsValue - principal).toString() : '0';
   return { accrued, aprBps: String(aprBps) };
 }

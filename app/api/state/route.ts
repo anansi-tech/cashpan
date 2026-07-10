@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { fetchSavingsValue, getAgentActivity } from '@/lib/read-layer';
+import { getReplayedPrincipal } from '@/lib/principal-replay';
 import { fetchVaultState, getLiveAprBps } from '@/lib/graphql';
 import { computeProposals } from '@/lib/brain';
 import { suiNetwork } from '@/lib/sui';
@@ -26,12 +27,13 @@ export async function GET(): Promise<Response> {
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
 
   // One GraphQL call (vault + epoch + wallet coins) + one simulateTransaction (savings).
-  // Activity and APR run concurrently alongside them.
-  const [stateResult, savingsResult, activityResult, aprResult] = await Promise.allSettled([
+  // Activity, APR, and principal replay run concurrently alongside them.
+  const [stateResult, savingsResult, activityResult, aprResult, principalResult] = await Promise.allSettled([
     fetchVaultState(vault.vaultId, vault.payoutAddress, COIN_TYPE),
     fetchSavingsValue(vault.vaultId),
     getAgentActivity(10, vault.vaultId, addressToName),
     getLiveAprBps(COIN_TYPE),
+    getReplayedPrincipal(vault.vaultId),
   ]);
 
   if (stateResult.status === 'rejected') {
@@ -57,9 +59,13 @@ export async function GET(): Promise<Response> {
       }
     : null;
 
-  const savingsPrincipal = vault.savingsPrincipal ?? '0';
+  // Principal is derived on-read from the on-chain event stream (see lib/principal-replay.ts).
+  // If the replay fails, report accrued 0 (chip hidden) rather than a wrong number.
+  if (principalResult.status === 'rejected') {
+    console.error('[state] getReplayedPrincipal failed:', principalResult.reason, { vaultId: vault.vaultId });
+  }
   const savingsValueBig = balances ? BigInt(balances.savingsValue) : 0n;
-  const principalBig = BigInt(savingsPrincipal);
+  const principalBig = principalResult.status === 'fulfilled' ? principalResult.value : savingsValueBig;
   const earnings = {
     accrued: (savingsValueBig > principalBig ? savingsValueBig - principalBig : 0n).toString(),
     aprBps: String(aprBps),

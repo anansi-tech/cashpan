@@ -13,7 +13,6 @@
     "drain": "tsx scripts/drain.ts",
     "deposit": "tsx scripts/deposit.ts",
     "create-vault": "tsx scripts/create-vault.ts",
-    "reconcile": "tsx scripts/reconcile-principal.ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "overrides": {

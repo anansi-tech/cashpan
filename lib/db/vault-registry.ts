@@ -31,7 +31,6 @@ export interface VaultRecord {
   contacts?: Contact[];
   buffer?: string;
   band?: string;
-  savingsPrincipal?: string;
 }
 
 type VaultDoc = VaultRecord & Document;
@@ -60,7 +59,6 @@ const VaultSchema = new Schema<VaultDoc>({
   contacts:         { type: [ContactSchema], default: [] },
   buffer:           { type: String },
   band:             { type: String },
-  savingsPrincipal: { type: String, default: '0' },
 });
 VaultSchema.index({ identityKey: 1, network: 1 }, { unique: true });
 
@@ -113,13 +111,6 @@ export async function updateCursor(identityKey: string, cursor: string): Promise
 export async function updateRebalanceCursor(identityKey: string, cursor: string): Promise<void> {
   await connectDB();
   await getModel().updateOne({ identityKey }, { $set: { rebalanceCursor: cursor } });
-}
-
-// ─── Savings principal (cost-basis tracking) ──────────────────────────────────
-
-export async function updateSavingsPrincipal(identityKey: string, newPrincipal: bigint): Promise<void> {
-  await connectDB();
-  await getModel().updateOne({ identityKey }, { $set: { savingsPrincipal: newPrincipal.toString() } });
 }
 
 // ─── Global watcher cursor (one per event type) ───────────────────────────────
