@@ -134,57 +134,6 @@ function OutcomeStrip({ proposal }: { proposal: Proposal }) {
   );
 }
 
-function DetailsDisclosure({ proposal }: { proposal: Proposal }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <button
-          onClick={() => setOpen(v => !v)}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--color-muted)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-        >
-          Details {open ? '▲' : '▼'}
-        </button>
-        <span style={{ fontSize: '0.72rem', color: 'var(--color-savings-bright)' }}>fee sponsored · free</span>
-      </div>
-
-      {open && (
-        <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <ProposalDetail label="Amount" value={`${fmtAmt(proposal.amountSui)} ${COIN_SYM}`} />
-          {proposal.action === 'send' && (
-            <>
-              <ProposalDetail label="To" value={proposal.payeeLabel} />
-              {proposal.recipient && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                  <span style={{ color: 'var(--color-muted)' }}>Address</span>
-                  <CopyableAddress address={proposal.recipient} />
-                </div>
-              )}
-            </>
-          )}
-          {proposal.action === 'withdrawToMe' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-              <span style={{ color: 'var(--color-muted)' }}>To</span>
-              <CopyableAddress address={proposal.payoutAddress} />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProposalDetail({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-      <span style={{ color: 'var(--color-muted)' }}>{label}</span>
-      <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function CopyableAddress({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(() => {
@@ -403,8 +352,18 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
         </button>
       </div>
 
-      {/* 4. Details disclosure */}
-      {!isBlocked && <DetailsDisclosure proposal={proposal} />}
+      {/* 4. Footer — recipient address on sends (the one thing worth verifying
+             before signing), fee note on everything */}
+      {!isBlocked && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+          {proposal.action === 'send' && proposal.recipient ? (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              to <CopyableAddress address={proposal.recipient} />
+            </span>
+          ) : <span />}
+          <span style={{ fontSize: '0.72rem', color: 'var(--color-savings-bright)', whiteSpace: 'nowrap' }}>fee sponsored · free</span>
+        </div>
+      )}
     </div>
   );
 }
