@@ -22,18 +22,19 @@ An optional off-chain rebalance agent can run alongside to automatically sweep e
 ```
 Browser (Next.js 15)
  ├── zkLogin sign-in (Google OAuth → Shinami ZK proof → Sui address)
- ├── LiveDashboard — polls /api/balances, animates savings via RAF
- ├── ChatPanel — useChat → /api/chat → streamText (GPT-4o-mini)
+ ├── LiveDashboard — renders /api/state data (5s poll); values update instantly
+ ├── ChatPanel — useChat → /api/chat → streamText (gpt-5-nano)
  │    └── ConfirmCard — user signs & Shinami sponsors each tx
- ├── ReceivePanel — shows address + QR; deposits owned coins into Spend
- └── ContactsPanel — per-user send book stored in MongoDB
+ ├── SendSheet — send flow + contacts management (stored in MongoDB)
+ └── ReceivePanel — shows address + QR; deposits owned coins into Spend
 
 Server (Next.js App Router, Node.js)
+ ├── /api/state       — balances + earnings + activity + proposals in one poll
+ │                      (earnings derived on-read from RebalanceEvents — no stored cost basis)
  ├── /api/chat        — AI SDK streamText, propose tools, contact resolution
- ├── /api/balances    — reads Vault + YieldVenue objects via Sui RPC
- ├── /api/activity    — reads RebalanceEvent history
+ ├── /api/sponsor + /api/submit-tx — Shinami sponsorship, GraphQL submission
  ├── /api/contacts    — CRUD contacts in MongoDB
- └── /api/provision   — creates a Vault for a new user at first sign-in
+ └── /api/vault/*     — idempotent per-user vault provisioning at first sign-in
 
 On-chain (Sui Move — move/sources/)
  ├── vault.move       — Vault<T>: liquid + savings_position, OwnerCap, AgentCap
@@ -92,7 +93,7 @@ Sign in with Google → vault is provisioned on first sign-in → use the Receiv
 | `SHINAMI_GAS_STATION_KEY` | manual | Shinami gas sponsorship |
 | `SHINAMI_ZKLOGIN_KEY` | manual | Shinami ZK prover |
 | `MONGODB_URI` | manual | MongoDB connection string |
-| `OPENAI_API_KEY` | manual | Chat model (gpt-4o-mini) |
+| `OPENAI_API_KEY` | manual | Chat model (gpt-5-nano) |
 
 `NEXT_PUBLIC_COIN_TYPE/DECIMALS/SYMBOL` are **not** set in `.env` — they are derived from `COIN_TYPE/DECIMALS/SYMBOL` at build time via `next.config.ts`.
 
@@ -120,7 +121,7 @@ sui move build
 sui move test        # 40 tests: 17 vault + 9 yield_venue + 14 test_usd
 
 # TypeScript unit tests
-npm test             # decide.test.ts — 13 tests
+npm test             # 24 tests: decide (13) + principal-replay (11)
 
 # Optional standalone agent (legacy; uses VAULT_ID / AGENT_PRIVATE_KEY etc.)
 npm run agent
