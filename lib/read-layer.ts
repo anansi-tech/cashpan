@@ -17,7 +17,11 @@ import type { GQLEventNode } from './graphql';
 import { getReplayedPrincipal } from './principal-replay';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
+// ORIGINAL package id — identifies types and events forever (Sui defining id).
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
+// Latest package id in the upgrade chain — moveCall targets ONLY. Calls to the
+// original id would execute the pre-upgrade bytecode.
+const PACKAGE_ID_LATEST = process.env.PACKAGE_ID_LATEST ?? PACKAGE_ID;
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 async function fetchSavingsValue(vaultId: string): Promise<bigint> {
@@ -25,7 +29,7 @@ async function fetchSavingsValue(vaultId: string): Promise<bigint> {
   try {
     const tx = new Transaction();
     tx.moveCall({
-      target: `${PACKAGE_ID}::vault::savings_balance`,
+      target: `${PACKAGE_ID_LATEST}::vault::savings_balance`,
       typeArguments: [LENDING_MARKET_TYPE, COIN_TYPE],
       arguments: [
         tx.object(vaultId),

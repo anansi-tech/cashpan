@@ -24,10 +24,14 @@ export default async function Page() {
 
   const vault = await getActiveVault(sub, suiNetwork());
 
+  // moveCall targets use the latest package in the upgrade chain; event/type
+  // identities stay on the original PACKAGE_ID (Sui defining-id semantics).
+  const packageIdLatest = process.env.PACKAGE_ID_LATEST ?? process.env.PACKAGE_ID!;
+
   if (!vault) {
     return (
       <ProvisionVault
-        packageId={process.env.PACKAGE_ID!}
+        packageId={packageIdLatest}
         pType={LENDING_MARKET_TYPE}
         venueId={process.env.VENUE_ID!}
         coinType={process.env.COIN_TYPE!}
@@ -38,7 +42,7 @@ export default async function Page() {
   const { vaultId } = vault;
 
   const vaultCtx: VaultTxContext = {
-    packageId: process.env.PACKAGE_ID!,
+    packageId: packageIdLatest,
     coinType: process.env.COIN_TYPE!,
     pType: LENDING_MARKET_TYPE,
     vaultId: vault.vaultId,
