@@ -7,18 +7,12 @@ import { ContactsPanel } from './ContactsPanel';
 import { ConfirmCard } from './ConfirmCard';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import type { SendProposal } from '@/lib/propose';
+import { formatMoney } from '@/lib/format';
 
-const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
-const COIN_FACTOR = 10 ** COIN_DEC;
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 const SUI_RE = /^0x[0-9a-fA-F]{64}$/;
 
-function toHuman(base: string | number): string {
-  return (Number(base) / COIN_FACTOR).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+const toHuman = (base: string | number): string => formatMoney(base);
 
 function short(addr: string): string {
   return `${addr.slice(0, 8)}…${addr.slice(-6)}`;

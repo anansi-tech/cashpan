@@ -6,6 +6,8 @@
  *   COIN_DECIMALS=9  COIN_SYMBOL=SUI   → native SUI
  */
 
+import { floorToDecimals } from './format';
+
 // NEXT_PUBLIC_ variant is bundled into the browser; plain variant used by scripts/agent.
 // setup.ts writes both so either naming convention works.
 const DECIMALS = parseInt(
@@ -25,12 +27,11 @@ export function humanToBase(human: string): bigint {
   return BigInt(Math.round(f * FACTOR));
 }
 
-/** Base-unit bigint/string → display decimal.  e.g. 50_000_000n → "50.00" (6 dec) */
+/**
+ * Base-unit bigint/string → display decimal.  e.g. 50_000_000n → "50.00" (6 dec)
+ * FLOORS via lib/format.ts (the single money formatter) — never rounds up.
+ * Ungrouped, so output round-trips safely through humanToBase.
+ */
 export function baseToHuman(base: bigint | string | number, displayDecimals = 2): string {
-  return (Number(base) / FACTOR).toFixed(displayDecimals);
-}
-
-/** Base-unit → formatted with $ prefix.  e.g. 50_000_000n → "$50.00" */
-export function formatCoin(base: bigint | string | number, displayDecimals = 2): string {
-  return `$${baseToHuman(base, displayDecimals)}`;
+  return floorToDecimals(base, displayDecimals);
 }

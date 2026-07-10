@@ -6,14 +6,11 @@ import { useVaultData } from './VaultDataProvider';
 import { buildTxForProposal, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction } from '@/lib/execute-zklogin';
 import { getSession } from '@/lib/auth';
+import { formatMoneyHuman } from '@/lib/format';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'SUI';
 
-function fmtAmt(s: string): string {
-  const n = parseFloat(s);
-  if (isNaN(n)) return s;
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const fmtAmt = (v: string | number): string => formatMoneyHuman(v);
 
 function pendingVerb(proposal: Proposal): string {
   if (proposal.action === 'send') return `Sending to ${proposal.payeeLabel}…`;
@@ -94,7 +91,7 @@ function OutcomeStrip({ proposal }: { proposal: Proposal }) {
         <div>
           <span style={lbl}>💵 Spend</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-liquid)' }}>
-            ${fmtAmt(Math.max(0, spend - amt).toFixed(6))} left
+            ${fmtAmt(Math.max(0, spend - amt))} left
           </span>
         </div>
       </div>
@@ -112,14 +109,14 @@ function OutcomeStrip({ proposal }: { proposal: Proposal }) {
       <div style={{ flex: 1 }}>
         <span style={lbl}>{srcLabel}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: srcColor }}>
-          ${fmtAmt(Math.max(0, srcVal).toFixed(6))}
+          ${fmtAmt(Math.max(0, srcVal))}
         </span>
       </div>
       <span style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>→</span>
       <div style={{ flex: 1, textAlign: 'right' }}>
         <span style={lbl}>{dstLabel}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', fontWeight: 700, color: dstColor }}>
-          ${fmtAmt(Math.max(0, dstVal).toFixed(6))}
+          ${fmtAmt(Math.max(0, dstVal))}
         </span>
       </div>
     </div>
@@ -208,7 +205,7 @@ function EffectRow({ label, before, after }: { label: string; before: number; af
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem' }}>
       <span style={{ color: 'var(--color-muted)', minWidth: '3.25rem', flexShrink: 0 }}>{label}:</span>
       <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-        {fmtAmt(before.toFixed(6))} → {fmtAmt(Math.max(0, after).toFixed(6))} {COIN_SYM}
+        {fmtAmt(before)} → {fmtAmt(Math.max(0, after))} {COIN_SYM}
       </span>
     </div>
   );

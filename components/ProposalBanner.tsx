@@ -6,13 +6,11 @@ import type { BrainProposal } from '@/lib/brain';
 import { buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zklogin';
 import { useVaultData } from './VaultDataProvider';
+import { formatMoneyHuman } from '@/lib/format';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
-function fmt(s: string): string {
-  const n = parseFloat(s);
-  return isNaN(n) ? s : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const fmt = (s: string): string => formatMoneyHuman(s);
 
 function proposalKey(p: BrainProposal): string {
   if (p.type === 'add-to-cashpan') return `add-${p.totalAmountSui}`;

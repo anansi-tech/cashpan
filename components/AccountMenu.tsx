@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthProvider';
 import { useVaultData } from './VaultDataProvider';
+import { formatMoney } from '@/lib/format';
 
 const numInputStyle: React.CSSProperties = {
   width: '4rem',
@@ -17,7 +18,6 @@ const numInputStyle: React.CSSProperties = {
   textAlign: 'right',
 };
 
-const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
 // ── Vault ID copy row ────────────────────────────────────────────────────────
@@ -59,10 +59,7 @@ function WalletBlock({ address, compact }: { address: string; compact?: boolean 
   const { walletBalance } = useVaultData();
   const [copied, setCopied] = useState(false);
 
-  const balance = (Number(walletBalance ?? '0') / 10 ** COIN_DEC).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const balance = formatMoney(walletBalance ?? '0');
 
   const copy = () => {
     navigator.clipboard.writeText(address).then(() => {

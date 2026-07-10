@@ -3,16 +3,11 @@
 import { useState } from 'react';
 import { useDeposit } from '@/lib/use-deposit';
 import type { VaultTxContext } from '@/lib/vault-tx';
+import { formatMoney } from '@/lib/format';
 
-const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
-function fmtBase(base: bigint): string {
-  return (Number(base) / 10 ** COIN_DEC).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+const fmtBase = (base: bigint): string => formatMoney(base);
 
 export function WalletArrivalStrip({
   vaultCtx,

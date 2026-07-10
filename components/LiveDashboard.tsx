@@ -1,24 +1,14 @@
 'use client';
 
 import { useVaultData } from './VaultDataProvider';
+import { formatMoney, floorToDecimals } from '@/lib/format';
 
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
 const COIN_FACTOR = 10 ** COIN_DEC;
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
-function fmt(base: number, d = 2): string {
-  return (base / COIN_FACTOR).toFixed(d);
-}
-
-function fmtLocale(base: number, d = 2): string {
-  return (base / COIN_FACTOR).toLocaleString('en-US', {
-    minimumFractionDigits: d,
-    maximumFractionDigits: d,
-  });
-}
-
-// Floor to whole cents so Spend + Save always sums to Total on screen.
-// Rounding each independently lets two half-cents round up and overshoot Total by 1¢.
+// Floor to whole cents BEFORE summing so Spend + Save always equals Total on screen.
+// (formatMoney floors again at display time — identity on already-floored values.)
 const CENT_BASE = COIN_FACTOR / 100;
 function floorCents(base: number): number {
   return Math.floor(base / CENT_BASE) * CENT_BASE;
@@ -119,7 +109,7 @@ function PocketCard({
           letterSpacing: '-0.02em', whiteSpace: 'nowrap',
           color: isSpend ? 'var(--color-liquid)' : 'var(--color-savings-bright)',
         }}>
-          ${fmtLocale(amountBase)}
+          ${formatMoney(amountBase)}
         </span>
         <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--color-muted-2)', marginLeft: '0.3rem' }}>
           {COIN_SYM}
@@ -147,7 +137,7 @@ export function LiveDashboard() {
   const accrued = earnings ? Math.max(0, Number(earnings.accrued)) : 0;
   const aprBps = earnings ? Number(earnings.aprBps) : 0;
   const aprLabel = aprBps > 0 ? `earning ${(aprBps / 100).toFixed(1)}% APR` : undefined;
-  const earnedInline = accrued > 0 ? `+$${fmt(accrued, 4)}` : undefined;
+  const earnedInline = accrued > 0 ? `+$${floorToDecimals(accrued, 4)}` : undefined;
 
   if (Number(balances?.liquid ?? 0) + Number(balances?.savingsValue ?? 0) === 0) {
     return (
@@ -177,7 +167,7 @@ export function LiveDashboard() {
           Total
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.03em', lineHeight: 1.1 }}>
-          ${fmtLocale(total)} <span style={{ fontSize: '1.1rem', color: 'var(--color-muted)', fontWeight: 400 }}>{COIN_SYM}</span>
+          ${formatMoney(total)} <span style={{ fontSize: '1.1rem', color: 'var(--color-muted)', fontWeight: 400 }}>{COIN_SYM}</span>
         </div>
       </div>
 
