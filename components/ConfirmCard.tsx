@@ -352,13 +352,17 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
         </button>
       </div>
 
-      {/* 4. Footer — recipient address on sends (the one thing worth verifying
-             before signing), fee note on everything */}
+      {/* 4. Footer — destination address where one exists (send: recipient,
+             withdraw: own payout wallet), fee note on everything */}
       {!isBlocked && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
           {proposal.action === 'send' && proposal.recipient ? (
             <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
               to <CopyableAddress address={proposal.recipient} />
+            </span>
+          ) : proposal.action === 'withdrawToMe' ? (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              to <CopyableAddress address={proposal.payoutAddress} />
             </span>
           ) : <span />}
           <span style={{ fontSize: '0.72rem', color: 'var(--color-savings-bright)', whiteSpace: 'nowrap' }}>fee sponsored · free</span>
