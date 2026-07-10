@@ -14,8 +14,17 @@ import { replayPrincipal, getReplayedPrincipal, type ReplayEvent, type PageFetch
 const VAULT_A = '0xaaa';
 const VAULT_B = '0xbbb';
 
-function ev(vaultId: string, direction: 0 | 1, amount: bigint): ReplayEvent {
-  return { contents: { json: { vault_id: vaultId, direction, amount: amount.toString() } } };
+function ev(vaultId: string, direction: 0 | 1, amount: bigint, valueAfter?: bigint): ReplayEvent {
+  return {
+    contents: {
+      json: {
+        vault_id: vaultId,
+        direction,
+        amount: amount.toString(),
+        ...(valueAfter !== undefined ? { savings_value_after: valueAfter.toString() } : {}),
+      },
+    },
+  };
 }
 
 function forVault(events: ReplayEvent[], vaultId: string): ReplayEvent[] {
@@ -83,6 +92,38 @@ describe('replayPrincipal (pure fold)', () => {
     let state = replayPrincipal([]);
     for (const e of SEQ) state = replayPrincipal([e], state);
     expect(state).toEqual(replayPrincipal(SEQ));
+  });
+
+  test('clamp: eventless drain self-heals on the next sweep', () => {
+    // sweep 19 → [redeem_position drains everything, emits NOTHING] → sweep 5.
+    // Without the clamp, principal would be 19 + 5 = 24 and the earnings chip
+    // would stay dead until the position grew past 24. The sweep's
+    // savings_value_after (≈ its own amount — fresh position) clamps it to 5.
+    const r = replayPrincipal([
+      ev(VAULT_A, 0, 19_000_000n, 19_000_000n),
+      // invisible drain — no event
+      ev(VAULT_A, 0, 5_000_000n, 5_000_000n),
+    ]);
+    expect(r.principal).toBe(5_000_000n);
+    // accrued from here: value 5.001 − principal 5.000 = 0.001 (correct again)
+  });
+
+  test('clamp is a no-op on a complete stream (basis ≤ value_after always)', () => {
+    // Same sequence, but the drain IS emitted (post-upgrade behavior):
+    // value_after reflects accrued interest, so it always exceeds basis.
+    const complete: ReplayEvent[] = [
+      ev(VAULT_A, 0, 1_000_000n, 1_000_000n),   // sweep → basis 1.00, value 1.00
+      ev(VAULT_A, 0, 2_000_000n, 3_000_500n),   // sweep → basis 3.00, value 3.0005 (accrual)
+      ev(VAULT_A, 1, 1_000_000n, 2_000_600n),   // topup → basis 2.00, value 2.0006
+      ev(VAULT_A, 1, 2_000_700n, 0n),           // full drain, emitted → basis clamps 0
+      ev(VAULT_A, 0, 700_000n, 700_000n),       // fresh sweep → basis 0.70
+    ];
+    const withClamp = replayPrincipal(complete);
+    expect(withClamp.principal).toBe(700_000n);
+    // and on streams without value_after at all, behavior is unchanged:
+    const legacy = replayPrincipal(SEQ);
+    expect(legacy.principal).toBe(700_000n);
+    expect(legacy.sweeps).toBe(3);
   });
 
   test('malformed and zero-amount events are skipped', () => {

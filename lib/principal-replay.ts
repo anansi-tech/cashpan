@@ -42,14 +42,26 @@ export function replayPrincipal(events: ReplayEvent[], initial: PrincipalResult 
     if (!json) continue;
     const direction = Number(json.direction ?? -1);
     const amount = BigInt(String(json.amount ?? '0'));
-    if (amount === 0n) continue;
 
-    if (direction === SWEEP) {
-      principal += amount;
-      sweeps++;
-    } else if (direction === TOPUP) {
-      principal = principal > amount ? principal - amount : 0n;
-      topups++;
+    if (amount > 0n) {
+      if (direction === SWEEP) {
+        principal += amount;
+        sweeps++;
+      } else if (direction === TOPUP) {
+        principal = principal > amount ? principal - amount : 0n;
+        topups++;
+      }
+    }
+
+    // Accounting law, not a patch: the cToken ratio only rises, so a position's
+    // value never legitimately falls below its cost basis — basis ≤ value_after
+    // is a system invariant. Enforcing it per event makes the fold immune to
+    // unemitted drains (pre-upgrade redeem_position emitted nothing): the next
+    // event's savings_value_after clamps principal back to reality.
+    const rawAfter = json.savings_value_after;
+    if (rawAfter !== undefined && rawAfter !== null) {
+      const valueAfter = BigInt(String(rawAfter));
+      if (principal > valueAfter) principal = valueAfter;
     }
   }
 
