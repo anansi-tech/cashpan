@@ -2,9 +2,6 @@
  * Vault registry — maps identityKey → vault + cap IDs + per-user contacts.
  *
  * identityKey is the zkLogin `sub`.
- *
- * Fields reserved for later blocks:
- *   eventCursor  — Block 3: durable deposit-event cursor per vault
  */
 
 import mongoose, { Schema, Model, Document } from 'mongoose';
@@ -26,8 +23,6 @@ export interface VaultRecord {
   coinType: string;
   salt?: string;
   createdAt: Date;
-  eventCursor?: string;
-  rebalanceCursor?: string;
   contacts?: Contact[];
   buffer?: string;
   band?: string;
@@ -54,8 +49,6 @@ const VaultSchema = new Schema<VaultDoc>({
   coinType:         { type: String, required: true },
   salt:             { type: String },
   createdAt:        { type: Date, default: () => new Date() },
-  eventCursor:      { type: String },
-  rebalanceCursor:  { type: String },
   contacts:         { type: [ContactSchema], default: [] },
   buffer:           { type: String },
   band:             { type: String },
@@ -99,44 +92,6 @@ export async function getActiveVault(identityKey: string, network = 'mainnet'): 
 export async function updateSettings(identityKey: string, settings: { buffer?: string; band?: string }): Promise<void> {
   await connectDB();
   await getModel().updateOne({ identityKey }, { $set: settings });
-}
-
-// ─── Cursor (watcher durable bookmark) ───────────────────────────────────────
-
-export async function updateCursor(identityKey: string, cursor: string): Promise<void> {
-  await connectDB();
-  await getModel().updateOne({ identityKey }, { $set: { eventCursor: cursor } });
-}
-
-export async function updateRebalanceCursor(identityKey: string, cursor: string): Promise<void> {
-  await connectDB();
-  await getModel().updateOne({ identityKey }, { $set: { rebalanceCursor: cursor } });
-}
-
-// ─── Global watcher cursor (one per event type) ───────────────────────────────
-
-interface WatcherStateDoc extends Document {
-  key: string;
-  cursor: string;
-}
-
-function getWatcherModel(): Model<WatcherStateDoc> {
-  return (mongoose.models.WatcherState as Model<WatcherStateDoc>) ??
-    mongoose.model<WatcherStateDoc>('WatcherState', new Schema<WatcherStateDoc>({
-      key:    { type: String, required: true, unique: true },
-      cursor: { type: String, required: true },
-    }));
-}
-
-export async function getWatcherCursor(key: string): Promise<string | null> {
-  await connectDB();
-  const doc = await getWatcherModel().findOne({ key }).lean();
-  return (doc as { cursor?: string } | null)?.cursor ?? null;
-}
-
-export async function setWatcherCursor(key: string, cursor: string): Promise<void> {
-  await connectDB();
-  await getWatcherModel().updateOne({ key }, { $set: { cursor } }, { upsert: true });
 }
 
 // ─── Contacts (per-user address book) ────────────────────────────────────────

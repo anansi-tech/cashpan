@@ -52,7 +52,6 @@ Next.js 15 App Router. The main page (`app/page.tsx`) is a server component that
 - `/api/sponsor` + `/api/submit-tx` — server half of tx execution: build/resolve PTB, Shinami sponsorship, submit via GraphQL. Every hop validates its expected fields and fails loud with the real error (Move aborts surface verbatim)
 - `/api/chat` — streams AI SDK responses (`gpt-5-nano`); exposes `propose*` tools that validate on-chain before returning proposals
 - `/api/contacts` — GET/POST/DELETE contacts stored in MongoDB per user
-- `/api/cron/watcher` — deposit-event scan only (incremental, cursor-based); no principal tracking
 
 **Client components** (`components/`):
 - `LiveDashboard` — renders `/api/state` data directly: no animation, values update instantly on poll. Both pockets floor to whole cents so Spend + Save always sums to Total; Save card shows accrued interest inline
@@ -166,6 +165,6 @@ QuickNode Sui Mainnet (SOC2/ISO, free tier):
 - `SUI_GRAPHQL_URL` — full HTTPS URL for GraphQL reads and SuiGraphQLClient.
 - `SUI_GRPC_HOST` — host:port (no protocol) for native gRPC, used by `@grpc/grpc-js`.
 - `SUI_GRPC_TOKEN` / `SUI_GRPC_AUTH_HEADER` — provider auth (header name in env, not code).
-- `SUI_RPC_URL` — QuickNode JSON-RPC URL; **unused** — web path and watcher are fully on GraphQL.
+- `SUI_RPC_URL` — QuickNode JSON-RPC URL; **unused** — the web path is fully on GraphQL.
 
 Switching providers = change env values only, zero code changes.
