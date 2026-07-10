@@ -86,10 +86,14 @@ function cache(): ReplayCache {
 
 async function refresh(rebalanceEventType: string, fetchPage: PageFetcher): Promise<void> {
   const c = cache();
+  const coldStart = c.cursor === null;
+  const t0 = Date.now();
+  let eventCount = 0;
   let cursor = c.cursor;
   let hasMore = true;
   while (hasMore) {
     const { events, nextCursor, endCursor } = await fetchPage(rebalanceEventType, cursor);
+    eventCount += events.length;
     for (const ev of events) {
       const vaultId = String(ev.contents?.json?.vault_id ?? '');
       if (!vaultId) continue;
@@ -99,6 +103,13 @@ async function refresh(rebalanceEventType: string, fetchPage: PageFetcher): Prom
     if (endCursor) c.cursor = endCursor;
     cursor = nextCursor;
     hasMore = nextCursor !== null;
+  }
+  if (coldStart) {
+    const ms = Date.now() - t0;
+    console.log(`[principal-replay] cold-start genesis replay: ${eventCount} events in ${ms}ms`);
+    if (ms > 1000) {
+      console.warn(`[principal-replay] cold replay took ${ms}ms (>1s) — time to move the checkpoint to Mongo (pure cache, same fold; see module doc)`);
+    }
   }
 }
 
