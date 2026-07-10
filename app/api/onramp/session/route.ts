@@ -55,6 +55,11 @@ export async function POST(req: Request) {
     const hdrs = await headers();
     const clientIp = hdrs.get('x-forwarded-for')?.split(',')[0]?.trim();
 
+    // Brings the user back after the mobile redirect flow. Silently ignored by
+    // Coinbase until the domain is allowlisted in CDP Portal → Onramp settings.
+    const host = hdrs.get('host');
+    const redirectUrl = host ? `https://${host}/` : undefined;
+
     const res = await fetch(`https://${CDP_HOST}${CDP_PATH}`, {
       method: 'POST',
       cache: 'no-store',
@@ -64,6 +69,7 @@ export async function POST(req: Request) {
         purchaseCurrency: 'USDC',
         destinationNetwork: 'sui',
         ...(clientIp ? { clientIp } : {}),
+        ...(redirectUrl ? { redirectUrl } : {}),
       }),
     });
 
