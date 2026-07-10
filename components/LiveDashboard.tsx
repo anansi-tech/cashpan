@@ -145,14 +145,13 @@ export function LiveDashboard() {
         <div style={{ fontSize: '2rem' }}>💸</div>
         <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '1rem' }}>Add money to get started</div>
         <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', lineHeight: 1.6, maxWidth: '22rem' }}>
-          Share your address to receive {COIN_SYM}, then tap{' '}
-          <strong style={{ color: 'var(--color-text)' }}>Add to CashPan</strong> to fund your Spend pocket.
+          Debit card, bank, or Apple Pay — or receive crypto to your address. Arrives in minutes.
         </div>
         <button
           onClick={() => dispatch('cashpan:show-receive')}
           style={{ background: 'var(--color-savings)', color: '#0a0f1e', border: 'none', borderRadius: '0.625rem', padding: '0.75rem 1.5rem', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
         >
-          Receive money →
+          Add money →
         </button>
       </div>
     );
