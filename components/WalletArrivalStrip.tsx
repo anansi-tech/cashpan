@@ -4,10 +4,31 @@ import { useState } from 'react';
 import { useDeposit } from '@/lib/use-deposit';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import { formatMoney } from '@/lib/format';
+import { isOnrampPending, clearOnrampPending } from '@/lib/onramp';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
 const fmtBase = (base: bigint): string => formatMoney(base);
+
+// Shown after the user opens the Coinbase Onramp, until their USDC lands
+// (the arrival strip replaces it) or they dismiss it. Card payments take
+// minutes; ACH longer.
+function OnrampPendingNote() {
+  const [, force] = useState(0);
+  return (
+    <div style={{ ...stripBase, borderLeftColor: 'rgba(148,163,184,0.5)' }}>
+      <span style={{ flex: 1, color: 'var(--color-muted)', fontSize: '0.85rem' }}>
+        ⏳ Waiting for your money to arrive… card payments take a few minutes.
+      </span>
+      <button
+        onClick={() => { clearOnrampPending(); force((n) => n + 1); }}
+        style={dismissBtn}
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
 
 export function WalletArrivalStrip({
   vaultCtx,
@@ -17,7 +38,14 @@ export function WalletArrivalStrip({
   const { totalOwned, depositedAmount, state, error, deposit } = useDeposit(vaultCtx);
   const [dismissed, setDismissed] = useState(false);
 
+  // Money arrived — the onramp wait is over for good.
+  if (totalOwned > 0n && isOnrampPending()) clearOnrampPending();
+
   if (dismissed) return null;
+
+  if (totalOwned === 0n && state !== 'success' && isOnrampPending()) {
+    return <OnrampPendingNote />;
+  }
 
   if (state === 'success') {
     return (
