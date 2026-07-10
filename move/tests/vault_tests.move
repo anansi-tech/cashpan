@@ -478,3 +478,91 @@ fun test_revoked_agent_cannot_send() {
     transfer::public_transfer(agent_cap, AGENT);
     ts::end(s);
 }
+
+// ============ Ledger completeness: every money move emits ============
+//
+// Invariant (CLAUDE.md): any function that changes a balance MUST emit an
+// event with actual amounts. The off-chain principal fold and activity feed
+// derive entirely from event-stream completeness — redeem_position shipped
+// without an emit and silently corrupted derived state.
+//
+// Suilend-backed paths (rebalance, owner_rebalance, redeem_position) need a
+// live LendingMarket + Pyth oracle stack that test_scenario cannot construct;
+// their emissions are verified on-chain by the money-flow gate (spec B4).
+
+#[test]
+fun test_withdraw_emits_event() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        let coin = vault::withdraw(&owner_cap, &mut vault, 500, ts::ctx(&mut s));
+        transfer::public_transfer(coin, OWNER);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    let effects = ts::next_tx(&mut s, OWNER);
+    assert!(ts::num_user_events(&effects) == 1, 0);
+    ts::end(s);
+}
+
+#[test]
+fun test_owner_send_emits_event() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::owner_send(&owner_cap, &mut vault, 100, STRANGER, ts::ctx(&mut s));
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    let effects = ts::next_tx(&mut s, OWNER);
+    assert!(ts::num_user_events(&effects) == 1, 0);
+    ts::end(s);
+}
+
+#[test]
+fun test_agent_withdraw_to_owner_emits_event() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_withdraw_to_owner(&agent_cap, &mut vault, 100, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    let effects = ts::next_tx(&mut s, AGENT);
+    assert!(ts::num_user_events(&effects) == 1, 0);
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}
+
+#[test]
+fun test_agent_send_emits_event() {
+    let mut s = setup();
+    fund_liquid(&mut s, FUND_AMOUNT);
+    let agent_cap = get_agent_cap(&mut s);
+    ts::next_tx(&mut s, OWNER);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        let owner_cap: OwnerCap = ts::take_from_sender(&s);
+        vault::add_payee(&owner_cap, &mut vault, PAYEE);
+        ts::return_shared(vault);
+        ts::return_to_sender(&s, owner_cap);
+    };
+    ts::next_tx(&mut s, AGENT);
+    {
+        let mut vault: Vault<SUI> = ts::take_shared(&s);
+        vault::agent_send(&agent_cap, &mut vault, 100, PAYEE, ts::ctx(&mut s));
+        ts::return_shared(vault);
+    };
+    let effects = ts::next_tx(&mut s, AGENT);
+    assert!(ts::num_user_events(&effects) == 1, 0);
+    transfer::public_transfer(agent_cap, AGENT);
+    ts::end(s);
+}

@@ -230,8 +230,20 @@ public fun redeem_position<P, T>(
 
     let mut position = option::extract(&mut vault.savings_position);
     let coin = yield_venue::withdraw_all(lm, venue, clock, &mut position, ctx);
+    let redeemed = coin::value(&coin);
     balance::join(&mut vault.liquid, coin::into_balance(coin));
     yield_venue::destroy_zero_position(position);
+
+    // Ledger completeness: every balance-changing path emits with actual amounts.
+    // A full redeem is a TOPUP that drains the position (savings_value_after = 0).
+    event::emit(RebalanceEvent {
+        vault_id: object::id(vault),
+        direction: TOPUP,
+        amount: redeemed,
+        liquid_after: balance::value(&vault.liquid),
+        savings_value_after: 0,
+        epoch: ctx.epoch(),
+    });
 }
 
 // ============ Owner outflow management ============
