@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
 import { useVaultData } from './VaultDataProvider';
 
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
@@ -16,6 +15,13 @@ function fmtLocale(base: number, d = 2): string {
     minimumFractionDigits: d,
     maximumFractionDigits: d,
   });
+}
+
+// Floor to whole cents so Spend + Save always sums to Total on screen.
+// Rounding each independently lets two half-cents round up and overshoot Total by 1¢.
+const CENT_BASE = COIN_FACTOR / 100;
+function floorCents(base: number): number {
+  return Math.floor(base / CENT_BASE) * CENT_BASE;
 }
 
 function dispatch(event: string) {
@@ -69,7 +75,7 @@ function PocketCard({
   amountBase,
   sub,
   aprChip,
-  animated,
+  earnedInline,
 }: {
   type: 'spend' | 'save';
   icon: string;
@@ -77,10 +83,9 @@ function PocketCard({
   amountBase: number;
   sub?: string;
   aprChip?: string;
-  animated?: boolean;
+  earnedInline?: string;
 }) {
   const isSpend = type === 'spend';
-  const glowAnim = isSpend ? 'spend-glow' : 'save-glow';
   return (
     <div style={{
       borderRadius: '0.875rem',
@@ -90,7 +95,6 @@ function PocketCard({
       gap: '0.25rem',
       background: isSpend ? 'rgba(245,158,11,0.08)' : 'var(--color-savings-dim)',
       border: `1px solid ${isSpend ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.22)'}`,
-      animation: animated ? `${glowAnim} 1.6s ease-in-out 1` : undefined,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>
@@ -120,6 +124,11 @@ function PocketCard({
         <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--color-muted-2)', marginLeft: '0.3rem' }}>
           {COIN_SYM}
         </span>
+        {earnedInline && (
+          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-savings)', marginLeft: '0.4rem', fontFamily: 'var(--font-mono)' }}>
+            ({earnedInline})
+          </span>
+        )}
       </div>
     </div>
   );
@@ -130,71 +139,17 @@ function PocketCard({
 export function LiveDashboard() {
   const { balances, earnings } = useVaultData();
 
-  const authRef = useRef({
-    liquid: Number(balances?.liquid ?? 0),
-    savingsValue: Number(balances?.savingsValue ?? 0),
-  });
-
-  const [displayed, setDisplayed] = useState({
-    liquid: Number(balances?.liquid ?? 0),
-    savingsValue: Number(balances?.savingsValue ?? 0),
-  });
-
-  const [pulse, setPulse] = useState<{ spend: boolean; save: boolean }>({ spend: false, save: false });
-  const mountedRef = useRef(false);
-  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const rafRef = useRef<number>(0);
-
-  const animate = useCallback(() => {
-    const auth = authRef.current;
-    setDisplayed((prev) => {
-      const sd = auth.savingsValue - prev.savingsValue;
-      const ld = auth.liquid - prev.liquid;
-      return {
-        savingsValue: Math.abs(sd) < 1 ? auth.savingsValue : prev.savingsValue + sd * 0.08,
-        liquid: Math.abs(ld) < 1 ? auth.liquid : prev.liquid + ld * 0.06,
-      };
-    });
-    rafRef.current = requestAnimationFrame(animate);
-  }, []);
-
-  useEffect(() => {
-    rafRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [animate]);
-
-  useEffect(() => {
-    return () => { if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current); };
-  }, []);
-
-  useEffect(() => {
-    if (!balances) return;
-    const newLiquid = Number(balances.liquid);
-    const newSavings = Number(balances.savingsValue);
-    if (mountedRef.current) {
-      const didSaveChange = newSavings !== authRef.current.savingsValue;
-      const didSpendChange = newLiquid !== authRef.current.liquid;
-      if (didSaveChange || didSpendChange) {
-        if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
-        setPulse({ spend: didSpendChange, save: didSaveChange });
-        pulseTimerRef.current = setTimeout(() => setPulse({ spend: false, save: false }), 1600);
-      }
-    }
-    mountedRef.current = true;
-    authRef.current = { liquid: newLiquid, savingsValue: newSavings };
-  }, [balances]);
-
-  const liquid = displayed.liquid;
-  const savingsValue = displayed.savingsValue;
+  // Flooring both pockets guarantees Spend + Save === Total on screen.
+  const liquid = floorCents(Number(balances?.liquid ?? 0));
+  const savingsValue = floorCents(Number(balances?.savingsValue ?? 0));
   const total = liquid + savingsValue;
 
   const accrued = earnings ? Math.max(0, Number(earnings.accrued)) : 0;
   const aprBps = earnings ? Number(earnings.aprBps) : 0;
   const aprLabel = aprBps > 0 ? `earning ${(aprBps / 100).toFixed(1)}% APR` : undefined;
-  const earnedLabel = accrued > 0 ? `+$${fmt(accrued, 4)} earned` : null;
+  const earnedInline = accrued > 0 ? `+$${fmt(accrued, 4)}` : undefined;
 
-  if (total === 0) {
+  if (Number(balances?.liquid ?? 0) + Number(balances?.savingsValue ?? 0) === 0) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2.5rem 1rem', textAlign: 'center' }}>
         <div style={{ fontSize: '2rem' }}>💸</div>
@@ -224,17 +179,12 @@ export function LiveDashboard() {
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.03em', lineHeight: 1.1 }}>
           ${fmtLocale(total)} <span style={{ fontSize: '1.1rem', color: 'var(--color-muted)', fontWeight: 400 }}>{COIN_SYM}</span>
         </div>
-        {earnedLabel && (
-          <div style={{ fontSize: '0.85rem', color: 'var(--color-savings)', fontWeight: 600, marginTop: '0.3rem' }}>
-            {earnedLabel}
-          </div>
-        )}
       </div>
 
       {/* Pocket cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" animated={pulse.spend} />
-        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} animated={pulse.save} />
+        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" />
+        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} earnedInline={earnedInline} />
       </div>
 
       {/* Quick actions */}

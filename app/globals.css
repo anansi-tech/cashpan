@@ -37,16 +37,6 @@
   50%       { border-color: rgba(16, 185, 129, 0.4);  box-shadow: 0 0 18px rgba(16, 185, 129, 0.08); }
 }
 
-@keyframes save-glow {
-  0%, 100% { border-color: rgba(16, 185, 129, 0.22); box-shadow: none; }
-  50%       { border-color: rgba(16, 185, 129, 0.4);  box-shadow: 0 0 18px rgba(16, 185, 129, 0.08); }
-}
-
-@keyframes spend-glow {
-  0%, 100% { border-color: rgba(245, 158, 11, 0.2); box-shadow: none; }
-  50%       { border-color: rgba(245, 158, 11, 0.4); box-shadow: 0 0 18px rgba(245, 158, 11, 0.08); }
-}
-
 * {
   box-sizing: border-box;
   /* Firefox thin scrollbar */
