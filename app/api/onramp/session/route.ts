@@ -19,6 +19,7 @@ import { cookies, headers } from 'next/headers';
 import { generateJwt } from '@coinbase/cdp-sdk/auth';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { suiNetwork } from '@/lib/sui';
+import { resolveClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,10 +51,12 @@ export async function POST(req: Request) {
       requestPath: CDP_PATH,
     });
 
-    // First hop of x-forwarded-for is the client on Vercel; binds the session
-    // to the user (recommended by CDP). Omitted if unavailable (e.g. local dev).
+    // First public hop of x-forwarded-for / x-real-ip binds the session to the
+    // user (recommended by CDP). The field is optional and CDP 400s on private
+    // IPs, so in local dev (loopback/LAN) it is omitted entirely.
     const hdrs = await headers();
-    const clientIp = hdrs.get('x-forwarded-for')?.split(',')[0]?.trim();
+    const clientIp = resolveClientIp((n) => hdrs.get(n));
+    if (process.env.DEBUG) console.log('[/api/onramp/session] clientIp:', clientIp ?? '(omitted — private/unknown)');
 
     // Brings the user back after the mobile redirect flow. Silently ignored by
     // Coinbase until the domain is allowlisted in CDP Portal → Onramp settings.
