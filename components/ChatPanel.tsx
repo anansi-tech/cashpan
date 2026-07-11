@@ -197,7 +197,11 @@ function ChatMessage({
   const proposalParts = (message.parts as LoosePart[]).filter((p) => {
     if (!isToolUIPart(p as never)) return false;
     const name = getToolName(p as never);
-    return name.startsWith('propose') && p['state'] === 'output-available';
+    if (!name.startsWith('propose') || p['state'] !== 'output-available') return false;
+    // Server-side amount-guard rejections are model-facing corrections
+    // ("call proposeTopup with the user's number"), not proposals — never
+    // render them as ConfirmCards.
+    return !(p['output'] as { rejected?: boolean } | null)?.rejected;
   });
 
   if (!text && proposalParts.length === 0) return null;

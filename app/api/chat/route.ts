@@ -11,7 +11,7 @@
 
 import { streamText, tool, convertToModelMessages, jsonSchema, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
-import { COIN_SYMBOL } from '@/lib/coin-config';
+import { COIN_SYMBOL, humanToBase } from '@/lib/coin-config';
 import { formatMoney, floorToDecimals, floorCentsBase } from '@/lib/format';
 import { getBalances, getEarnings, getAgentActivity, getConfig } from '@/lib/read-layer';
 import {
@@ -22,6 +22,7 @@ import {
   buildContactMap,
 } from '@/lib/propose';
 import { resolveVault } from '@/lib/resolve-vault';
+import { guardNumericAmount, guardDrain } from '@/lib/propose-guard';
 
 function buildSystemPrompt(contactNames: string[]): string {
   const contactList =
@@ -45,8 +46,10 @@ When the user's intent to move money is clear, immediately call the matching pro
 
 - proposeSend({ amount, payeeLabel }) — "send mom $10", "pay Alex 5"
 - proposeWithdrawToMe({ amount }) — "give me back $10", "withdraw to my wallet"
-- proposeSweep({ amount? }) — "put aside $50", "save $20", "move to savings"
-- proposeTopup({ amount?, keepInSave? }) — "move $20 to spending", "top up", "I need cash". Omit amount for "move everything/all/max"; use keepInSave for "keep $X, move the rest". Never compute those amounts from balances yourself.
+- proposeSweep({ amount }) — "put aside $50", "save $20". Amount is REQUIRED and must be the number the user said.
+- proposeSweepAll({}) — ONLY for "save everything", "sweep it all". Takes no amount.
+- proposeTopup({ amount }) — "move $20 to spending", "top me up with $5". Amount is REQUIRED and must be the number the user said.
+- proposeDrainSave({ keepInSave? }) — ONLY for "move everything/all/max to spend" (no arguments) or "keep $X in save, move the rest" (keepInSave). NEVER call this when the user names an amount to move — use proposeTopup. Never compute amounts from balances yourself.
 
 Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak dollars.
 
@@ -73,6 +76,23 @@ export async function POST(req: Request) {
   const contacts = vault.contacts ?? [];
   const contactMap = buildContactMap(contacts);
   const contactNames = contacts.map((c) => c.label);
+
+  // Last user message text — the amount guards compare proposals against the
+  // numbers the user actually typed.
+  const lastUserText: string = (() => {
+    const arr = messages as Array<{ role?: string; parts?: Array<{ type?: string; text?: string }> }>;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i]?.role === 'user') {
+        return (arr[i].parts ?? []).filter((p) => p.type === 'text').map((p) => p.text ?? '').join(' ');
+      }
+    }
+    return '';
+  })();
+
+  // Every propose-tool call is logged: misparse incidents ("top me up with 5
+  // dollars" → drain-all, 3x) are only diagnosable with the emitted args.
+  const logTool = (name: string, args: unknown) =>
+    console.log(`[chat:tool] ${name}`, JSON.stringify(args), '| user:', JSON.stringify(lastUserText.slice(0, 120)));
 
   const result = streamText({
     model: openai('gpt-5-nano'),
@@ -198,32 +218,91 @@ export async function POST(req: Request) {
 
       proposeSweep: tool({
         description:
-          'Propose moving money from Spend to Save (sweep). Call this for "put aside", "save", "move to savings". Amount is optional — omit to sweep all available Spend balance.',
-        inputSchema: jsonSchema<{ amount?: string }>({
+          'Propose moving a SPECIFIC amount from Spend to Save. Call this for "put aside $50", "save $20". ' +
+          'The amount is REQUIRED and must be the number the user said. For "save everything" use proposeSweepAll.',
+        inputSchema: jsonSchema<{ amount: string }>({
           type: 'object',
           properties: {
-            amount: { type: 'string', description: 'Amount (optional)' },
+            amount: { type: 'string', description: 'Amount the user named, e.g. "50"' },
           },
+          required: ['amount'],
           additionalProperties: false,
         }),
-        execute: async ({ amount }: { amount?: string }) => proposeSweep(amount, vaultId),
+        execute: async ({ amount }: { amount: string }) => {
+          logTool('proposeSweep', { amount });
+          const p = await proposeSweep(amount, vaultId);
+          const guard = guardNumericAmount(lastUserText, amount, humanToBase(p.spendBalance));
+          if (!guard.ok) {
+            return { rejected: true, message: `The user said $${guard.userNumber} — call proposeSweep again with amount "${guard.userNumber}".` };
+          }
+          return p;
+        },
+      }),
+
+      proposeSweepAll: tool({
+        description:
+          'Propose sweeping the ENTIRE Spend balance to Save. ONLY for "save everything", "sweep it all", "move all my money to savings". ' +
+          'NEVER call this when the user names an amount — use proposeSweep.',
+        inputSchema: jsonSchema<Record<string, never>>({
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        }),
+        execute: async () => {
+          logTool('proposeSweepAll', {});
+          const p = await proposeSweep(undefined, vaultId);
+          const guard = guardDrain(lastUserText, humanToBase(p.spendBalance));
+          if (!guard.ok) {
+            return { rejected: true, message: `The user named $${guard.userNumber} — call proposeSweep with amount "${guard.userNumber}" instead.` };
+          }
+          return p;
+        },
       }),
 
       proposeTopup: tool({
         description:
-          'Propose moving from savings to the spend pocket (topup). Call this for "move to spending", "top up", "I need cash". ' +
-          'OMIT amount entirely when the user wants everything ("move all/everything/max to spend") — that drains Save exactly to $0. ' +
-          'Use keepInSave (and omit amount) for "keep $X in save, move the rest". Never compute these amounts yourself.',
-        inputSchema: jsonSchema<{ amount?: string; keepInSave?: string }>({
+          'Propose moving a SPECIFIC amount from savings to the spend pocket. Call this for "move $20 to spending", "top me up with $5". ' +
+          'The amount is REQUIRED and must be the number the user said. For "move everything" use proposeDrainSave.',
+        inputSchema: jsonSchema<{ amount: string }>({
           type: 'object',
           properties: {
-            amount: { type: 'string', description: 'Amount, e.g. "10". Omit to move everything.' },
+            amount: { type: 'string', description: 'Amount the user named, e.g. "5"' },
+          },
+          required: ['amount'],
+          additionalProperties: false,
+        }),
+        execute: async ({ amount }: { amount: string }) => {
+          logTool('proposeTopup', { amount });
+          const p = await proposeTopup(amount, vaultId);
+          const guard = guardNumericAmount(lastUserText, amount, humanToBase(p.savingsSui));
+          if (!guard.ok) {
+            return { rejected: true, message: `The user said $${guard.userNumber} — call proposeTopup again with amount "${guard.userNumber}".` };
+          }
+          return p;
+        },
+      }),
+
+      proposeDrainSave: tool({
+        description:
+          'Propose moving EVERYTHING from Save to Spend (drains savings to $0), or everything except keepInSave. ' +
+          'ONLY for "move everything/all/max to spend" or "keep $X in save, move the rest". ' +
+          'NEVER call this when the user names an amount to move — use proposeTopup.',
+        inputSchema: jsonSchema<{ keepInSave?: string }>({
+          type: 'object',
+          properties: {
             keepInSave: { type: 'string', description: 'Amount to leave in Save; the rest moves to Spend. E.g. "19".' },
           },
           additionalProperties: false,
         }),
-        execute: async ({ amount, keepInSave }: { amount?: string; keepInSave?: string }) =>
-          proposeTopup(amount, vaultId, keepInSave),
+        execute: async ({ keepInSave }: { keepInSave?: string }) => {
+          logTool('proposeDrainSave', { keepInSave });
+          const p = await proposeTopup(undefined, vaultId, keepInSave);
+          const guard = guardDrain(lastUserText, humanToBase(p.savingsSui), keepInSave);
+          if (!guard.ok) {
+            return { rejected: true, message: `The user said $${guard.userNumber} — that is a specific amount, not "everything". Call proposeTopup with amount "${guard.userNumber}".` };
+          }
+          return p;
+        },
       }),
     },
   });
