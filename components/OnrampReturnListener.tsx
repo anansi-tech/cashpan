@@ -6,8 +6,8 @@ import { setOnrampPending } from '@/lib/onramp';
 
 /**
  * Handles the user returning from Coinbase Onramp. Both paths converge on the
- * same outcome: the "Waiting for your money to arrive…" note shows and the
- * poll picks up the USDC when it lands (WalletArrivalStrip clears the flag).
+ * same outcome: the quiet "Waiting for Coinbase…" line shows in the proposal
+ * slot until the arrival proposal replaces it (ProposalBanner clears the flag).
  *
  * - Desktop: /onramp/callback (popup) posts {type:'onramp'} and closes.
  * - Mobile: the redirect lands on /?onramp_result=… (param stripped after read).

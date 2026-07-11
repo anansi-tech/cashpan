@@ -7,6 +7,7 @@ import { buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@
 import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zklogin';
 import { useVaultData } from './VaultDataProvider';
 import { formatMoneyHuman } from '@/lib/format';
+import { isOnrampPending, clearOnrampPending } from '@/lib/onramp';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
@@ -18,32 +19,58 @@ function proposalKey(p: BrainProposal): string {
   return `sweep-${p.amountSui}`;
 }
 
+// Quiet post-onramp line. Lives in the proposal slot so the arrival proposal
+// literally REPLACES it — one place, one voice.
+function WaitingForCoinbase({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div style={{ ...cardStyle, flexDirection: 'row', alignItems: 'center', borderLeftColor: 'rgba(148,163,184,0.5)', marginBottom: '0.875rem' }}>
+      <span style={{ flex: 1, color: 'var(--color-muted)', fontSize: '0.82rem' }}>
+        ⏳ Waiting for Coinbase… card payments take a few minutes.
+      </span>
+      <button onClick={onDismiss} style={notNowBtn}>Dismiss</button>
+    </div>
+  );
+}
+
+/**
+ * The single announcer for everything proactive — wallet arrivals included.
+ * Strictly ONE visible card at a time: computeProposals orders arrival-add
+ * before sweep/topup, so "$X arrived → Add" resolves first, and the next
+ * poll surfaces the follow-up sweep (if the band was crossed) on its own.
+ */
 export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const { proposals, refresh } = useVaultData();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [, bump] = useState(0);
 
   const dismiss = useCallback((key: string) => {
     setDismissed((prev) => new Set([...prev, key]));
   }, []);
 
-  // add-to-cashpan is handled by WalletArrivalStrip; only show rebalance proposals here
-  const visible = proposals.filter((p) => !dismissed.has(proposalKey(p)) && p.type !== 'add-to-cashpan');
-  if (visible.length === 0) return null;
+  const visible = proposals.filter((p) => !dismissed.has(proposalKey(p)));
+  const current = visible[0];
+
+  // Money arrived — the onramp wait is over.
+  if (current?.type === 'add-to-cashpan' && isOnrampPending()) clearOnrampPending();
+
+  if (!current) {
+    return isOnrampPending()
+      ? <WaitingForCoinbase onDismiss={() => { clearOnrampPending(); bump((n) => n + 1); }} />
+      : null;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.875rem' }}>
-      {visible.map((p) => (
-        <BrainCard
-          key={proposalKey(p)}
-          proposal={p}
-          vaultCtx={vaultCtx}
-          onDismiss={() => dismiss(proposalKey(p))}
-          onSuccess={() => {
-            dismiss(proposalKey(p));
-            refresh();
-          }}
-        />
-      ))}
+      <BrainCard
+        key={proposalKey(current)}
+        proposal={current}
+        vaultCtx={vaultCtx}
+        onDismiss={() => dismiss(proposalKey(current))}
+        onSuccess={() => {
+          dismiss(proposalKey(current));
+          refresh();
+        }}
+      />
     </div>
   );
 }
@@ -107,9 +134,9 @@ function BrainCard({
 
   switch (proposal.type) {
     case 'add-to-cashpan':
-      heading = `$${fmt(proposal.totalAmountSui)} ${COIN_SYM} in your wallet`;
-      subtext = 'Add it to your CashPan?';
-      confirmLabel = 'Add to CashPan';
+      heading = `$${fmt(proposal.totalAmountSui)} ${COIN_SYM} arrived`;
+      subtext = 'Add it to CashPan?';
+      confirmLabel = 'Add';
       break;
     case 'topup-from-save':
       heading = `Spend is low ($${fmt(proposal.spendBalance)} ${COIN_SYM})`;

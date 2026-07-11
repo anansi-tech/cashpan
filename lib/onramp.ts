@@ -3,7 +3,7 @@
  * session route and opens it (popup on desktop, redirect on mobile).
  *
  * Everything after the money lands is the EXISTING pipeline: the 5s state poll
- * sees walletBalance > 0 → WalletArrivalStrip appears → one-tap Add → Spend.
+ * sees walletBalance > 0 → the "$X arrived" proposal card appears → Add → Spend.
  */
 
 const PENDING_KEY = 'cashpan_onramp_pending';

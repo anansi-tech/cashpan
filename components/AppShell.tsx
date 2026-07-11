@@ -5,7 +5,6 @@ import { LiveDashboard } from './LiveDashboard';
 import { ActivityFeed } from './ActivityFeed';
 import { ChatPanel } from './ChatPanel';
 import { ProposalBanner } from './ProposalBanner';
-import { WalletArrivalStrip } from './WalletArrivalStrip';
 import { SendSheet } from './SendSheet';
 import { ProfileContent } from './AccountMenu';
 import { ReceivePanel } from './ReceivePanel';
@@ -80,7 +79,6 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
         {/* Left rail: money */}
         <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '1.75rem 1.5rem', gap: '1.25rem', borderRight: '1px solid var(--color-border)' }}>
-          <WalletArrivalStrip vaultCtx={vaultCtx} />
           <ProposalBanner vaultCtx={vaultCtx} />
           <LiveDashboard />
         </div>
@@ -108,8 +106,7 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
         <div className="mobile-content">
           {/* Home */}
           <div style={{ display: mobileTab === 'home' ? 'flex' : 'none', flexDirection: 'column', gap: 0, padding: '1rem', overflowY: 'auto', flex: 1 }}>
-            <WalletArrivalStrip vaultCtx={vaultCtx} />
-            <ProposalBanner vaultCtx={vaultCtx} />
+              <ProposalBanner vaultCtx={vaultCtx} />
             <LiveDashboard />
           </div>
 
