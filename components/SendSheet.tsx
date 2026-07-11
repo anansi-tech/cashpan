@@ -8,6 +8,7 @@ import { ConfirmCard } from './ConfirmCard';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import type { SendProposal } from '@/lib/propose';
 import { formatMoney } from '@/lib/format';
+import { openCashOut } from '@/lib/offramp';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 const SUI_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -122,6 +123,30 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   const [contactName, setContactName] = useState('');
   const [contactSaved, setContactSaved] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
+  const [cashOutState, setCashOutState] = useState<'idle' | 'opening'>('idle');
+  const [cashOutError, setCashOutError] = useState('');
+  // Region HINT for inline copy only — never a gate; Coinbase decides eligibility.
+  const [cashOutHint, setCashOutHint] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/offramp/availability')
+      .then((r) => r.json())
+      .then((d: { hint?: boolean }) => setCashOutHint(d.hint ?? true))
+      .catch(() => setCashOutHint(true));
+  }, []);
+
+  const handleCashOut = async () => {
+    setCashOutState('opening');
+    setCashOutError('');
+    try {
+      await openCashOut();
+      onClose(); // CashOutCard takes over in the proposal slot
+    } catch (e) {
+      // Coinbase's rejection reason verbatim — they know eligibility, we don't.
+      setCashOutError(e instanceof Error ? e.message : 'Could not open the cash-out flow. Try again.');
+      setCashOutState('idle');
+    }
+  };
 
   const spendHuman = balances ? toHuman(String(balances.liquid)) : '0.00';
   const spendNum = parseFloat(spendHuman.replace(/,/g, ''));
@@ -237,6 +262,36 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
       {/* Step: Recipient */}
       {step === 'recipient' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* Cash out to bank (Coinbase offramp) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Cash out
+            </div>
+            <button
+              onClick={handleCashOut}
+              disabled={cashOutState === 'opening'}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid var(--color-border)',
+                borderRadius: '0.625rem', padding: '0.75rem 0.875rem', cursor: cashOutState === 'opening' ? 'wait' : 'pointer',
+                color: 'var(--color-text)', fontSize: '0.875rem', fontWeight: 600, minHeight: '48px', textAlign: 'left',
+              }}
+            >
+              <span>🏦 {cashOutState === 'opening' ? 'Opening Coinbase…' : 'Cash out to your bank'}</span>
+              <span style={{ color: 'var(--color-muted)' }}>›</span>
+            </button>
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
+              Cashing out uses your Coinbase account (free) — you&apos;ll sign in or create one.
+              Availability depends on your state.
+              {cashOutHint === false && ' May not be available in your state.'}
+            </div>
+            {cashOutError && (
+              <div style={{ fontSize: '0.75rem', color: 'rgba(252,165,165,0.9)', lineHeight: 1.5 }}>
+                {cashOutError}
+              </div>
+            )}
+          </div>
 
           {/* Paste address */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

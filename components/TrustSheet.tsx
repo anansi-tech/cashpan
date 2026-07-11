@@ -82,8 +82,8 @@ export function TrustSheet({
         </Section>
 
         <Section title="You can always leave.">
-          Withdraw to your own wallet anytime, no permission needed. Everything is
-          public on the Sui blockchain.
+          Withdraw to your own wallet anytime, no permission needed — or cash out
+          to your bank right from the app. Everything is public on the Sui blockchain.
           {vaultId && (
             <>
               {' '}

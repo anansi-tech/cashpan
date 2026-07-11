@@ -26,6 +26,9 @@ export interface VaultRecord {
   contacts?: Contact[];
   buffer?: string;
   band?: string;
+  /** Coinbase offramp deposit addresses seen for this user — pure label cache
+      so cash-out sends read "bank (cash out)" in activity. Optional, unqueried. */
+  offrampAddresses?: string[];
 }
 
 type VaultDoc = VaultRecord & Document;
@@ -52,6 +55,7 @@ const VaultSchema = new Schema<VaultDoc>({
   contacts:         { type: [ContactSchema], default: [] },
   buffer:           { type: String },
   band:             { type: String },
+  offrampAddresses: { type: [String], default: [] },
 });
 VaultSchema.index({ identityKey: 1, network: 1 }, { unique: true });
 
@@ -92,6 +96,13 @@ export async function getActiveVault(identityKey: string, network = 'mainnet'): 
 export async function updateSettings(identityKey: string, settings: { buffer?: string; band?: string }): Promise<void> {
   await connectDB();
   await getModel().updateOne({ identityKey }, { $set: settings });
+}
+
+// ─── Offramp deposit addresses (activity label cache) ─────────────────────────
+
+export async function addOfframpAddress(identityKey: string, address: string): Promise<void> {
+  await connectDB();
+  await getModel().updateOne({ identityKey }, { $addToSet: { offrampAddresses: address } });
 }
 
 // ─── Contacts (per-user address book) ────────────────────────────────────────
