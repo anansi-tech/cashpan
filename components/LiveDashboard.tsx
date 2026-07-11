@@ -2,6 +2,7 @@
 
 import { useVaultData } from './VaultDataProvider';
 import { formatMoney, floorToDecimals } from '@/lib/format';
+import { pendingSuggestionPockets } from './ProposalBanner';
 
 const COIN_DEC = parseInt(process.env.NEXT_PUBLIC_COIN_DECIMALS ?? '6', 10);
 const COIN_FACTOR = 10 ** COIN_DEC;
@@ -66,6 +67,7 @@ function PocketCard({
   sub,
   aprChip,
   earnedInline,
+  suggestion,
 }: {
   type: 'spend' | 'save';
   icon: string;
@@ -74,6 +76,8 @@ function PocketCard({
   sub?: string;
   aprChip?: string;
   earnedInline?: string;
+  /** Non-shifting hint: the agent has a pending suggestion for this pocket. */
+  suggestion?: boolean;
 }) {
   const isSpend = type === 'spend';
   return (
@@ -89,6 +93,16 @@ function PocketCard({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>
           {icon} {label}
+          {suggestion && (
+            <span style={{
+              marginLeft: '0.4rem', textTransform: 'none', letterSpacing: 0, fontWeight: 600,
+              fontSize: '0.6rem', color: 'var(--color-savings)',
+              background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.22)',
+              borderRadius: '999px', padding: '0.05rem 0.4rem', verticalAlign: 'middle',
+            }}>
+              suggestion ↓
+            </span>
+          )}
         </span>
         {aprChip && (
           <span style={{
@@ -140,7 +154,8 @@ function DashSkeleton() {
 }
 
 export function LiveDashboard() {
-  const { balances, earnings, isStale } = useVaultData();
+  const { balances, earnings, isStale, proposals, settings } = useVaultData();
+  const hints = pendingSuggestionPockets(proposals, settings.band);
 
   // No data yet (fresh session, first poll pending): skeletons — never a
   // zeroed dashboard or a premature "add money" empty state.
@@ -194,8 +209,8 @@ export function LiveDashboard() {
 
       {/* Pocket cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" />
-        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} earnedInline={earnedInline} />
+        <PocketCard type="spend" icon="💵" label="Spend" amountBase={liquid} sub="ready to use" suggestion={hints.spend} />
+        <PocketCard type="save" icon="💰" label="Save" amountBase={savingsValue} aprChip={aprLabel} earnedInline={earnedInline} suggestion={hints.save} />
       </div>
 
       {/* Quick actions */}

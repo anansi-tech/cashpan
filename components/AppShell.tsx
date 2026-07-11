@@ -97,8 +97,9 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
         {/* Left rail: money */}
         <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '1.75rem 1.5rem', gap: '1.25rem', borderRight: '1px solid var(--color-border)' }}>
-          <ProposalBanner vaultCtx={vaultCtx} />
+          {/* Proposal slot BELOW the money — cards appearing here never move Total */}
           <LiveDashboard />
+          <ProposalBanner vaultCtx={vaultCtx} />
         </div>
 
         {/* Center: chat hero */}
@@ -124,8 +125,8 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
         <div className="mobile-content">
           {/* Home */}
           <div style={{ display: mobileTab === 'home' ? 'flex' : 'none', flexDirection: 'column', gap: 0, padding: '1rem', overflowY: 'auto', flex: 1 }}>
-              <ProposalBanner vaultCtx={vaultCtx} />
             <LiveDashboard />
+            <ProposalBanner vaultCtx={vaultCtx} />
           </div>
 
           {/* Activity */}

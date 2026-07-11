@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import type { BrainProposal } from '@/lib/brain';
+import { humanToBase } from '@/lib/coin-config';
 import { buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zklogin';
 import { useVaultData } from './VaultDataProvider';
@@ -15,10 +16,49 @@ const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
 const fmt = (s: string): string => formatMoneyHuman(s);
 
-function proposalKey(p: BrainProposal): string {
-  if (p.type === 'add-to-cashpan') return `add-${p.totalAmountSui}`;
-  if (p.type === 'topup-from-save') return `topup-${p.amountSui}`;
-  return `sweep-${p.amountSui}`;
+// ─── Dismiss memory ────────────────────────────────────────────────────────────
+//
+// "Not now" records the proposal's TRIGGER value (liquid for sweep/topup,
+// wallet balance for arrivals) per proposal type. The proposal re-surfaces
+// only when the trigger has moved by ≥ the user's band — their own definition
+// of a material change; no hardcoded thresholds. Module scope so the desktop
+// and mobile shell instances share one memory; session-lived by design
+// (a reload re-evaluates — no Mongo field).
+
+const dismissedAt = new Map<string, bigint>();
+
+/** The balance that triggered this proposal, in base units. */
+function triggerValue(p: BrainProposal): bigint {
+  if (p.type === 'add-to-cashpan') return BigInt(p.balanceBase);
+  return humanToBase(p.spendBalance); // sweep + topup are both liquid-driven
+}
+
+function isDismissed(p: BrainProposal, bandHuman: string): boolean {
+  const at = dismissedAt.get(p.type);
+  if (at === undefined) return false;
+  const diff = triggerValue(p) - at;
+  const abs = diff < 0n ? -diff : diff;
+  const band = humanToBase(bandHuman || '0');
+  // band = 0 means the user considers ANY change material.
+  return band > 0n ? abs < band : abs === 0n;
+}
+
+export function recordDismissal(p: BrainProposal): void {
+  dismissedAt.set(p.type, triggerValue(p));
+}
+
+/** Manual pocket action (Move form / chat confirm) resets the conversation. */
+export function clearProposalDismissals(): void {
+  dismissedAt.clear();
+}
+
+/** Pocket hint chips: which pocket has a live (non-dismissed) suggestion. */
+export function pendingSuggestionPockets(proposals: BrainProposal[], bandHuman: string): { spend: boolean; save: boolean } {
+  const visible = proposals.filter((p) => !isDismissed(p, bandHuman));
+  return {
+    spend: visible.some((p) => p.type === 'sweep-to-save'),
+    save: visible.some((p) => p.type === 'topup-from-save'),
+  };
 }
 
 // Quiet post-onramp line. Lives in the proposal slot so the arrival proposal
@@ -41,18 +81,25 @@ function WaitingForCoinbase({ onDismiss }: { onDismiss: () => void }) {
  * poll surfaces the follow-up sweep (if the band was crossed) on its own.
  */
 export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const { proposals, refresh } = useVaultData();
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const { proposals, settings, refresh } = useVaultData();
   const [, bump] = useState(0);
 
-  const dismiss = useCallback((key: string) => {
-    setDismissed((prev) => new Set([...prev, key]));
+  // A manual pocket action anywhere (Move form, chat confirm) clears the memory.
+  useEffect(() => {
+    const onActed = () => { clearProposalDismissals(); bump((n) => n + 1); };
+    window.addEventListener('cashpan:pockets-changed', onActed);
+    return () => window.removeEventListener('cashpan:pockets-changed', onActed);
+  }, []);
+
+  const dismiss = useCallback((p: BrainProposal) => {
+    recordDismissal(p);
+    bump((n) => n + 1);
   }, []);
 
   // An active cash-out owns the slot outright — one visible card, always.
   if (isCashOutActive()) return <CashOutCard vaultCtx={vaultCtx} />;
 
-  const visible = proposals.filter((p) => !dismissed.has(proposalKey(p)));
+  const visible = proposals.filter((p) => !isDismissed(p, settings.band));
   const current = visible[0];
 
   // Money arrived — the onramp wait is over.
@@ -67,12 +114,14 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.875rem' }}>
       <BrainCard
-        key={proposalKey(current)}
+        key={`${current.type}-${triggerValue(current)}`}
         proposal={current}
         vaultCtx={vaultCtx}
-        onDismiss={() => dismiss(proposalKey(current))}
+        onDismiss={() => dismiss(current)}
         onSuccess={() => {
-          dismiss(proposalKey(current));
+          // Acting IS a manual pocket action — reset the whole memory.
+          clearProposalDismissals();
+          bump((n) => n + 1);
           refresh();
         }}
       />

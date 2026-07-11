@@ -200,6 +200,8 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
       setDigest(result.digest ?? '');
       setExecState('success');
       onSuccess(result.digest ?? '');
+      // Manual pocket action — resets the agent's proposal dismiss-memory.
+      window.dispatchEvent(new CustomEvent('cashpan:pockets-changed'));
       refresh();
       // Events take ~2s to be indexed on Sui; second refresh picks them up
       setTimeout(refresh, 2500);
