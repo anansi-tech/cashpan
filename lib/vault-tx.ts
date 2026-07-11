@@ -114,6 +114,26 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
   return tx;
 }
 
+/**
+ * Cash out: ONE PTB — withdraw `amountBase` from vault liquid, transfer the
+ * coin to Coinbase's deposit address. Sender = the user's zkLogin address =
+ * the offramp session-token address (Coinbase validates from_address).
+ */
+export function buildCashOutTx(amountBase: bigint, toAddress: string, ctx: VaultTxContext): Transaction {
+  const tx = new Transaction();
+  const [coin] = tx.moveCall({
+    target: `${ctx.packageId}::vault::withdraw`,
+    typeArguments: [ctx.coinType],
+    arguments: [
+      tx.object(ctx.ownerCapId),
+      tx.object(ctx.vaultId),
+      tx.pure.u64(amountBase),
+    ],
+  });
+  tx.transferObjects([coin], tx.pure.address(toAddress));
+  return tx;
+}
+
 // ─── Brain PTB builders ───────────────────────────────────────────────────────
 
 export function buildDepositTx(balance: bigint, ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>): Transaction {

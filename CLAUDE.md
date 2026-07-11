@@ -54,6 +54,7 @@ Next.js 15 App Router. The main page (`app/page.tsx`) is a server component that
 - `/api/sponsor` + `/api/submit-tx` — server half of tx execution: build/resolve PTB, Shinami sponsorship, submit via GraphQL. Every hop validates its expected fields and fails loud with the real error (Move aborts surface verbatim)
 - `/api/chat` — streams AI SDK responses (`gpt-5-nano`); exposes `propose*` tools that validate on-chain before returning proposals
 - `/api/contacts` — GET/POST/DELETE contacts stored in MongoDB per user
+- `/api/onramp/session` + `/api/offramp/{session,status,availability}` — Coinbase money-in/money-out. Offramp inverts the flow: Coinbase's status API supplies amount + deposit address, the user signs one PTB (vault withdraw → transfer), `CashOutCard` drives it in the proposal slot. Region header is a UI hint only — Coinbase is the eligibility authority
 
 **Client components** (`components/`):
 - `LiveDashboard` — renders `/api/state` data directly: no animation, values update instantly on poll. Both pockets floor to whole cents so Spend + Save always sums to Total; Save card shows accrued interest inline

@@ -8,6 +8,8 @@ import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zkl
 import { useVaultData } from './VaultDataProvider';
 import { formatMoneyHuman } from '@/lib/format';
 import { isOnrampPending, clearOnrampPending } from '@/lib/onramp';
+import { isCashOutActive } from '@/lib/offramp';
+import { CashOutCard } from './CashOutCard';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
@@ -46,6 +48,9 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const dismiss = useCallback((key: string) => {
     setDismissed((prev) => new Set([...prev, key]));
   }, []);
+
+  // An active cash-out owns the slot outright — one visible card, always.
+  if (isCashOutActive()) return <CashOutCard vaultCtx={vaultCtx} />;
 
   const visible = proposals.filter((p) => !dismissed.has(proposalKey(p)));
   const current = visible[0];

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useVaultData } from './VaultDataProvider';
 import { setOnrampPending } from '@/lib/onramp';
+import { isCashOutActive } from '@/lib/offramp';
 
 /**
  * Handles the user returning from Coinbase Onramp. Both paths converge on the
@@ -17,6 +18,9 @@ export function OnrampReturnListener() {
 
   useEffect(() => {
     const handleReturn = () => {
+      // The callback relay is shared with the offramp (sell) flow — a return
+      // during an active cash-out belongs to CashOutCard, not the buy path.
+      if (isCashOutActive()) { refresh(); return; }
       setOnrampPending(); // idempotent — openOnramp already set it pre-launch
       refresh();          // immediate poll instead of waiting out the 5s tick
     };
