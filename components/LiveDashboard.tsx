@@ -180,10 +180,7 @@ export function LiveDashboard() {
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <QuickBtn icon="📥" label="Receive" onClick={() => dispatch('cashpan:show-receive')} />
         <QuickBtn icon="↗" label="Send" onClick={() => dispatch('cashpan:show-send')} />
-        <QuickBtn icon="⇄" label="Move" onClick={() => {
-          dispatch('cashpan:show-chat');
-          window.dispatchEvent(new CustomEvent('cashpan:prefill-chat', { detail: { text: 'Move $' } }));
-        }} />
+        <QuickBtn icon="⇄" label="Move" onClick={() => dispatch('cashpan:show-move')} />
       </div>
 
     </div>
