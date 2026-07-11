@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useVaultData } from './VaultDataProvider';
-import { buildCashOutTx, type VaultTxContext } from '@/lib/vault-tx';
-import { executeTransaction } from '@/lib/execute-zklogin';
+import type { VaultTxContext } from '@/lib/vault-tx';
+import { executeWalletSendTransaction } from '@/lib/execute-zklogin';
 import { humanToBase } from '@/lib/coin-config';
 import { formatMoney, formatMoneyHuman } from '@/lib/format';
 import { clearCashOut, cashOutStartedAt } from '@/lib/offramp';
 
-const WINDOW_MS = 30 * 60 * 1000; // Coinbase voids the sell 30 min after "Cash out now"
+const WINDOW_MS = 30 * 60 * 1000;  // Coinbase voids the sell 30 min after "Cash out now"
+const NO_ORDER_GIVE_UP_MS = 10 * 60 * 1000; // stop waiting if no order ever appears
 const POLL_STEPS_MS = [3_000, 5_000, 8_000, 13_000, 21_000, 30_000]; // then stay at 30s
 
 interface OfframpTx {
@@ -29,7 +30,9 @@ type Phase =
   | 'sent'       // send signed; waiting for Coinbase to pay out
   | 'paid'
   | 'expired'    // 30-min window closed before signing
-  | 'failed';    // Coinbase reported failure (incl. price-drop cancel)
+  | 'failed'     // Coinbase reported failure (incl. price-drop cancel)
+  | 'gone';      // dismissed / gave up waiting — render nothing, free the slot
+                 // (staged USDC in the wallet triggers the arrival proposal)
 
 /**
  * The cash-out flow card — renders in the proposal slot (one voice, one card).
@@ -37,7 +40,7 @@ type Phase =
  * Coinbase's status API, surfaced honestly.
  */
 export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const { balances, refresh } = useVaultData();
+  const { walletBalance, refresh } = useVaultData();
   const [phase, setPhase] = useState<Phase>('waiting');
   const [tx, setTx] = useState<OfframpTx | null>(null);
   const [error, setError] = useState('');
@@ -85,6 +88,16 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       }
     } catch { /* transient — keep polling */ }
 
+    // Never poll forever: if no order has appeared within ~10 minutes of the
+    // widget opening, give up quietly. The staged USDC sits at the wallet, so
+    // the slot reverts to the arrival proposal ("$X arrived — add it back?").
+    if (phaseRef.current === 'waiting' && Date.now() - startedAt > NO_ORDER_GIVE_UP_MS) {
+      clearCashOut();
+      setPhase('gone');
+      refresh();
+      return;
+    }
+
     const delay = POLL_STEPS_MS[Math.min(pollIdx.current, POLL_STEPS_MS.length - 1)];
     pollIdx.current += 1;
     timerRef.current = setTimeout(() => { void poll(); }, delay);
@@ -100,8 +113,9 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     setPhase('sending');
     setError('');
     try {
-      const built = buildCashOutTx(humanToBase(tx.sellAmount), tx.toAddress, vaultCtx);
-      await executeTransaction(built);
+      // Funds were staged to the wallet in step 1 — this is a plain wallet
+      // send, so Coinbase's from_address check is trivially the sender.
+      await executeWalletSendTransaction(humanToBase(tx.sellAmount), tx.toAddress, vaultCtx.coinType);
       setPhase('sent');
       refresh();
     } catch (e) {
@@ -110,7 +124,15 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     }
   };
 
-  const dismiss = () => { clearCashOut(); refresh(); };
+  // Dismiss stops the polling timer dead — never poll past a dismissal.
+  const dismiss = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    clearCashOut();
+    setPhase('gone');
+    refresh();
+  };
+
+  if (phase === 'gone') return null;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -127,7 +149,8 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   if (phase === 'confirm' || phase === 'sending') {
     const amount = tx?.sellAmount ?? '0';
-    const insufficient = balances ? BigInt(balances.liquid) < humanToBase(amount) : false;
+    // Step 2 spends from the WALLET (where step 1 staged the funds).
+    const insufficient = BigInt(walletBalance || '0') < humanToBase(amount);
     return (
       <Card accent="var(--color-savings)">
         <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)' }}>
@@ -139,7 +162,7 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
         </div>
         {insufficient && (
           <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>
-            Your Spend pocket only has ${formatMoney(balances!.liquid)} — move money to Spend first.
+            Your wallet only has ${formatMoney(walletBalance || '0')} staged — the order can&apos;t be covered.
           </div>
         )}
         {error && <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>{error}</div>}

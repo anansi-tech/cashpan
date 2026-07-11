@@ -98,6 +98,28 @@ export async function executeTransaction(tx: Transaction): Promise<{ digest: str
  * Deposit — coinWithBalance intent cannot be V1-serialized client-side.
  * Server builds the full PTB and resolves coin selection via suix_getCoins.
  */
+/**
+ * Cash-out step 2 — plain wallet send (coinWithBalance, server-built like
+ * deposits). Funds must already sit at the user's wallet address.
+ */
+export async function executeWalletSendTransaction(
+  amountBase: bigint,
+  recipient: string,
+  coinType: string,
+): Promise<{ digest: string; objectTypes?: Record<string, string> }> {
+  const session = getSession();
+  if (!session) dispatchSessionExpired();
+
+  const sponsored = await callSponsor({
+    action: 'walletSend',
+    amountBase: amountBase.toString(),
+    sender: session.address,
+    recipient,
+    coinType,
+  });
+  return signAndSubmit(sponsored);
+}
+
 export async function executeDepositTransaction(
   balance: bigint,
   ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>,

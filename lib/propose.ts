@@ -116,9 +116,10 @@ export async function proposeSend(
   return base;
 }
 
-export async function proposeWithdrawToMe(amountSuiStr: string, vaultId: string): Promise<WithdrawToMeProposal> {
+/** amount omitted → withdraw the full liquid balance (cash-out staging Max). */
+export async function proposeWithdrawToMe(amountSuiStr: string | undefined, vaultId: string): Promise<WithdrawToMeProposal> {
   const vault = await fetchVaultState(vaultId);
-  const amountMist = suiToMist(amountSuiStr);
+  const amountMist = amountSuiStr !== undefined ? suiToMist(amountSuiStr) : vault.liquid;
 
   const base: WithdrawToMeProposal = {
     action: 'withdrawToMe',

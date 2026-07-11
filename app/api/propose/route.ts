@@ -8,7 +8,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { proposeSweep, proposeTopup } from '@/lib/propose';
+import { proposeSweep, proposeTopup, proposeWithdrawToMe } from '@/lib/propose';
 import { resolveVault } from '@/lib/resolve-vault';
 
 export const dynamic = 'force-dynamic';
@@ -19,13 +19,13 @@ export async function POST(req: Request) {
   try {
     const vault = await resolveVault(req.clone());
     const { action, amount, max } = await req.json() as {
-      action?: 'sweep' | 'topup';
+      action?: 'sweep' | 'topup' | 'withdrawToMe';
       amount?: string;
       max?: boolean;
     };
 
-    if (action !== 'sweep' && action !== 'topup') {
-      return NextResponse.json({ error: 'action must be sweep or topup' }, { status: 400 });
+    if (action !== 'sweep' && action !== 'topup' && action !== 'withdrawToMe') {
+      return NextResponse.json({ error: 'action must be sweep, topup, or withdrawToMe' }, { status: 400 });
     }
     if (!max) {
       const n = parseFloat(amount ?? '');
@@ -33,11 +33,13 @@ export async function POST(req: Request) {
       if (n < MIN_MOVE) return NextResponse.json({ error: `Minimum move is $${MIN_MOVE.toFixed(2)}` }, { status: 400 });
     }
 
-    // Max maps to the exact-everything paths: full-liquid sweep, or the
-    // drain (full redeem) for Save → Spend — never a computed number.
+    // Max maps to the exact-everything paths: full-liquid sweep/withdraw, or
+    // the drain (full redeem) for Save → Spend — never a computed number.
     const proposal = action === 'sweep'
       ? await proposeSweep(max ? undefined : amount, vault.vaultId)
-      : await proposeTopup(max ? undefined : amount, vault.vaultId);
+      : action === 'withdrawToMe'
+        ? await proposeWithdrawToMe(max ? undefined : amount, vault.vaultId)
+        : await proposeTopup(max ? undefined : amount, vault.vaultId);
 
     return NextResponse.json({ proposal });
   } catch (err) {

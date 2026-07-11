@@ -51,6 +51,8 @@ interface ConfirmCardProps {
   onSuccess: (digest: string) => void;
   onDismiss: () => void;
   vaultCtx: VaultTxContext;
+  /** Cash-out staging: reframes the withdrawToMe headline. */
+  cashOutStage?: boolean;
 }
 
 function blockMessage(proposal: Proposal, reason: BlockReason): string {
@@ -70,9 +72,12 @@ function blockMessage(proposal: Proposal, reason: BlockReason): string {
   }
 }
 
-function HeadlineSentence({ proposal }: { proposal: Proposal }) {
+function HeadlineSentence({ proposal, cashOutStage }: { proposal: Proposal; cashOutStage?: boolean }) {
   const amtStyle = { fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-savings-bright)' } as const;
   const a = <span style={amtStyle}>${fmtAmt(proposal.amountSui)}</span>;
+  if (cashOutStage && proposal.action === 'withdrawToMe') {
+    return <span>Move {a} to your wallet for cash-out?</span>;
+  }
   if (proposal.action === 'sweep') return <span>Move {a} from Spend to Save?</span>;
   if (proposal.action === 'topup') {
     // drainAll redeems the full position — the exact amount includes interest
@@ -173,7 +178,7 @@ function Spinner() {
   );
 }
 
-export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: ConfirmCardProps) {
+export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx, cashOutStage }: ConfirmCardProps) {
   const { refresh } = useVaultData();
   const [execState, setExecState] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
   const [digest, setDigest] = useState('');
@@ -297,7 +302,7 @@ export function ConfirmCard({ proposal, onSuccess, onDismiss, vaultCtx }: Confir
       {/* 1. Headline sentence */}
       {!isBlocked && (
         <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-text)', lineHeight: 1.5 }}>
-          <HeadlineSentence proposal={proposal} />
+          <HeadlineSentence proposal={proposal} cashOutStage={cashOutStage} />
         </div>
       )}
 

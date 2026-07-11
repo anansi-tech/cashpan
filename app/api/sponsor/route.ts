@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { Transaction } from '@mysten/sui/transactions';
 import { SuiJsonRpcClient, JsonRpcHTTPTransport } from '@mysten/sui/jsonRpc';
 import { NETWORK } from '@/lib/sui';
-import { buildDepositTx } from '@/lib/vault-tx';
+import { buildDepositTx, buildWalletSendTx } from '@/lib/vault-tx';
 
 // Derive JSON-RPC URL from the GraphQL URL (same QuickNode endpoint, different path).
 // suix_getCoins JSON-RPC is authoritative for coin enumeration; GraphQL address.objects
@@ -24,12 +24,13 @@ function rpcClient() {
 
 type RegularBody = { txSerialized: string; sender: string };
 type DepositBody = { action: 'deposit'; amountBase: string; sender: string; vaultId: string; packageId: string; coinType: string };
+type WalletSendBody = { action: 'walletSend'; amountBase: string; sender: string; recipient: string; coinType: string };
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json() as RegularBody | DepositBody;
+    const body = await req.json() as RegularBody | DepositBody | WalletSendBody;
     const apiKey = process.env.SHINAMI_GAS_STATION_KEY!;
 
     let tx: Transaction;
@@ -38,6 +39,14 @@ export async function POST(req: Request) {
       // Server builds deposit PTB — coinWithBalance intent resolved here via suix_getCoins.
       const { amountBase, sender, vaultId, packageId, coinType } = body;
       tx = buildDepositTx(BigInt(amountBase), { packageId, coinType, vaultId });
+      tx.setSender(sender);
+    } else if ('action' in body && body.action === 'walletSend') {
+      // Cash-out step 2: plain wallet → Coinbase deposit address (coinWithBalance).
+      const { amountBase, sender, recipient, coinType } = body;
+      if (!/^0x[0-9a-fA-F]{64}$/.test(recipient)) {
+        return NextResponse.json({ error: 'Invalid recipient address' }, { status: 400 });
+      }
+      tx = buildWalletSendTx(BigInt(amountBase), recipient, coinType);
       tx.setSender(sender);
     } else {
       // Client serialized a plain object-ref PTB (sweep/topup/send/withdraw).

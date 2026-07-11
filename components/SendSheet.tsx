@@ -6,7 +6,7 @@ import { useVaultData } from './VaultDataProvider';
 import { ContactsPanel } from './ContactsPanel';
 import { ConfirmCard } from './ConfirmCard';
 import type { VaultTxContext } from '@/lib/vault-tx';
-import type { SendProposal } from '@/lib/propose';
+import type { SendProposal, Proposal } from '@/lib/propose';
 import { formatMoney } from '@/lib/format';
 import { openCashOut } from '@/lib/offramp';
 
@@ -123,8 +123,11 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   const [contactName, setContactName] = useState('');
   const [contactSaved, setContactSaved] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
-  const [cashOutState, setCashOutState] = useState<'idle' | 'opening'>('idle');
+  const [cashOutState, setCashOutState] = useState<'idle' | 'preparing' | 'opening'>('idle');
   const [cashOutError, setCashOutError] = useState('');
+  const [cashOutAmount, setCashOutAmount] = useState('');
+  const [cashOutMax, setCashOutMax] = useState(false);
+  const [cashOutProposal, setCashOutProposal] = useState<Proposal | null>(null);
   // Region HINT for inline copy only — never a gate; Coinbase decides eligibility.
   const [cashOutHint, setCashOutHint] = useState<boolean | null>(null);
 
@@ -135,15 +138,38 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
       .catch(() => setCashOutHint(true));
   }, []);
 
-  const handleCashOut = async () => {
-    setCashOutState('opening');
+  // Cash-out v2, step 1 (staging): the widget gates on the WALLET balance, so
+  // funds must move vault → wallet first. Ask the amount in-app, confirm via
+  // the standard pipeline, THEN open the widget — which now shows $X available.
+  const handleCashOutReview = async () => {
+    setCashOutState('preparing');
     setCashOutError('');
+    try {
+      const res = await fetch('/api/propose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'withdrawToMe', ...(cashOutMax ? { max: true } : { amount: cashOutAmount }) }),
+      });
+      const data = await res.json().catch(() => ({})) as { proposal?: Proposal; error?: string };
+      if (!res.ok || !data.proposal) throw new Error(data.error ?? 'Could not prepare the cash-out');
+      setCashOutProposal(data.proposal);
+    } catch (e) {
+      setCashOutError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
+    } finally {
+      setCashOutState('idle');
+    }
+  };
+
+  // Step 1 signed → open the Coinbase sell widget (the amount authority).
+  const handleStaged = async () => {
+    setCashOutState('opening');
     try {
       await openCashOut();
       onClose(); // CashOutCard takes over in the proposal slot
     } catch (e) {
       // Coinbase's rejection reason verbatim — they know eligibility, we don't.
       setCashOutError(e instanceof Error ? e.message : 'Could not open the cash-out flow. Try again.');
+      setCashOutProposal(null);
       setCashOutState('idle');
     }
   };
@@ -213,6 +239,28 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
     if (step === 'amount') { setAmount(''); setStep('recipient'); }
   };
 
+  // ── Cash-out staging confirm (step 1 of 2) ─────────────────────────────────
+
+  if (cashOutProposal) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '1.25rem', gap: '1rem' }}>
+        <ConfirmCard
+          proposal={cashOutProposal}
+          vaultCtx={vaultCtx}
+          cashOutStage
+          onDismiss={() => setCashOutProposal(null)}
+          onSuccess={() => { void handleStaged(); }}
+        />
+        {cashOutState === 'opening' && (
+          <div style={{ fontSize: '0.82rem', color: 'var(--color-muted)' }}>Opening Coinbase…</div>
+        )}
+        {cashOutError && (
+          <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>{cashOutError}</div>
+        )}
+      </div>
+    );
+  }
+
   // ── Contacts sub-view ───────────────────────────────────────────────────────
 
   if (view === 'contacts') {
@@ -263,24 +311,59 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
       {step === 'recipient' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Cash out to bank (Coinbase offramp) */}
+          {/* Cash out to bank (Coinbase offramp) — staged: amount here first,
+              funds move to the wallet, then the Coinbase widget opens with
+              that balance available. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Cash out
+              🏦 Cash out to your bank
             </div>
-            <button
-              onClick={handleCashOut}
-              disabled={cashOutState === 'opening'}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.25rem', flex: 1,
                 background: 'rgba(255,255,255,0.04)', border: '1px solid var(--color-border)',
-                borderRadius: '0.625rem', padding: '0.75rem 0.875rem', cursor: cashOutState === 'opening' ? 'wait' : 'pointer',
-                color: 'var(--color-text)', fontSize: '0.875rem', fontWeight: 600, minHeight: '48px', textAlign: 'left',
-              }}
-            >
-              <span>🏦 {cashOutState === 'opening' ? 'Opening Coinbase…' : 'Cash out to your bank'}</span>
-              <span style={{ color: 'var(--color-muted)' }}>›</span>
-            </button>
+                borderRadius: '0.625rem', padding: '0 0.75rem',
+              }}>
+                <span style={{ color: 'var(--color-muted)', fontSize: '0.9rem' }}>$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Amount"
+                  value={cashOutAmount}
+                  onChange={(e) => { setCashOutAmount(e.target.value); setCashOutMax(false); }}
+                  style={{
+                    flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                    color: 'var(--color-text)', fontSize: '0.9rem', fontFamily: 'var(--font-mono)',
+                    padding: '0.7rem 0', minWidth: 0,
+                  }}
+                />
+              </div>
+              <button
+                onClick={() => { setCashOutMax(true); setCashOutAmount(spendHuman.replace(/,/g, '')); }}
+                style={{
+                  background: cashOutMax ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${cashOutMax ? 'rgba(16,185,129,0.35)' : 'var(--color-border)'}`,
+                  color: cashOutMax ? 'var(--color-savings-bright)' : 'var(--color-muted)',
+                  borderRadius: '0.625rem', padding: '0 0.75rem', fontSize: '0.8rem', fontWeight: 700,
+                  cursor: 'pointer', flexShrink: 0, minHeight: '44px',
+                }}
+              >
+                Max
+              </button>
+              <button
+                onClick={handleCashOutReview}
+                disabled={cashOutState !== 'idle' || (!cashOutMax && !(parseFloat(cashOutAmount) > 0))}
+                style={{
+                  background: cashOutState === 'idle' && (cashOutMax || parseFloat(cashOutAmount) > 0) ? 'var(--color-savings)' : 'rgba(255,255,255,0.06)',
+                  color: cashOutState === 'idle' && (cashOutMax || parseFloat(cashOutAmount) > 0) ? '#0a0f1e' : 'var(--color-muted)',
+                  border: 'none', borderRadius: '0.625rem',
+                  padding: '0 0.875rem', fontSize: '0.85rem', fontWeight: 700,
+                  cursor: 'pointer', flexShrink: 0, minHeight: '44px',
+                }}
+              >
+                {cashOutState === 'preparing' ? '…' : 'Next →'}
+              </button>
+            </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
               Cashing out uses your Coinbase account (free) — you&apos;ll sign in or create one.
               Availability depends on your state.

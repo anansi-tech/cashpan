@@ -115,22 +115,16 @@ export function buildTopupTx(proposal: TopupProposal, ctx: VaultTxContext): Tran
 }
 
 /**
- * Cash out: ONE PTB — withdraw `amountBase` from vault liquid, transfer the
- * coin to Coinbase's deposit address. Sender = the user's zkLogin address =
- * the offramp session-token address (Coinbase validates from_address).
+ * Cash-out step 2: plain wallet send to Coinbase's deposit address. Funds were
+ * already staged to the wallet in step 1 (withdrawToMe), so from_address
+ * validation is trivially the sender. Uses coinWithBalance — server-built
+ * only (the intent cannot be V1-serialized client-side).
  */
-export function buildCashOutTx(amountBase: bigint, toAddress: string, ctx: VaultTxContext): Transaction {
+export function buildWalletSendTx(amountBase: bigint, recipient: string, coinType: string): Transaction {
+  if (amountBase === 0n) throw new Error('Nothing to send');
   const tx = new Transaction();
-  const [coin] = tx.moveCall({
-    target: `${ctx.packageId}::vault::withdraw`,
-    typeArguments: [ctx.coinType],
-    arguments: [
-      tx.object(ctx.ownerCapId),
-      tx.object(ctx.vaultId),
-      tx.pure.u64(amountBase),
-    ],
-  });
-  tx.transferObjects([coin], tx.pure.address(toAddress));
+  const coin = tx.add(coinWithBalance({ type: coinType, balance: amountBase }));
+  tx.transferObjects([coin], tx.pure.address(recipient));
   return tx;
 }
 
