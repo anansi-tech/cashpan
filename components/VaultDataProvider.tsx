@@ -28,6 +28,8 @@ export interface AppState {
 
 interface VaultContextValue extends AppState {
   isLoading: boolean;
+  /** Last poll failed — data shown is the previous known-good payload. */
+  isStale: boolean;
   refresh: () => void;
 }
 
@@ -58,15 +60,27 @@ export function VaultDataProvider({
     contacts: initial?.contacts ?? [],
     settings: DEFAULT_SETTINGS,
   });
-  const [isLoading, setIsLoading] = useState(true);
+  // Server-rendered initial data counts as loaded — skeletons are only for
+  // a genuinely empty first paint.
+  const [isLoading, setIsLoading] = useState(!initial?.balances);
+  const [isStale, setIsStale] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchState = useCallback(async () => {
     try {
       const res = await fetch('/api/state', { cache: 'no-store' });
-      if (res.ok) setState(await res.json() as AppState);
-    } catch { /* degrade silently */ }
-    setIsLoading(false);
+      if (res.ok) {
+        // Fresh data swaps in place; previous values are never zeroed by a
+        // failed read (the server 503s instead of fabricating zeros).
+        setState(await res.json() as AppState);
+        setIsStale(false);
+        setIsLoading(false);
+      } else {
+        setIsStale(true);
+      }
+    } catch {
+      setIsStale(true); // network blip — keep showing previous data
+    }
   }, []);
 
   const refresh = useCallback(() => { void fetchState(); }, [fetchState]);
@@ -89,7 +103,7 @@ export function VaultDataProvider({
   }, [fetchState]);
 
   return (
-    <VaultDataContext.Provider value={{ ...state, isLoading, refresh }}>
+    <VaultDataContext.Provider value={{ ...state, isLoading, isStale, refresh }}>
       {children}
     </VaultDataContext.Provider>
   );

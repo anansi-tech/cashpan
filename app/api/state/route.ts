@@ -39,28 +39,27 @@ export async function GET(): Promise<Response> {
     getReplayedPrincipal(vault.vaultId),
   ]);
 
-  if (stateResult.status === 'rejected') {
-    console.error('[state] fetchVaultState failed:', stateResult.reason, { vaultId: vault.vaultId });
-  }
-  if (savingsResult.status === 'rejected') {
-    console.error('[state] fetchSavingsValue failed:', savingsResult.reason, { vaultId: vault.vaultId });
+  // NEVER serve zeros as truth: if either balance read is still failing after
+  // the built-in retries, tell the client to keep showing what it has.
+  if (stateResult.status === 'rejected' || savingsResult.status === 'rejected') {
+    const reason = stateResult.status === 'rejected' ? stateResult.reason : (savingsResult as PromiseRejectedResult).reason;
+    console.error('[state] balance read failed after retries:', reason, { vaultId: vault.vaultId });
+    return NextResponse.json({ stale: true }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 
-  const gql = stateResult.status === 'fulfilled' ? stateResult.value : null;
-  const savingsValue = savingsResult.status === 'fulfilled' ? savingsResult.value : 0n;
+  const gql = stateResult.value;
+  const savingsValue = savingsResult.value;
   const activity = activityResult.status === 'fulfilled' ? activityResult.value : [];
   const aprBps = aprResult.status === 'fulfilled' ? aprResult.value : 0;
 
-  const walletBalance = gql?.walletBalance ?? '0';
+  const walletBalance = gql.walletBalance;
 
-  const balances: Balances | null = gql
-    ? {
-        liquid: gql.liquidBase.toString(),
-        savingsValue: savingsValue.toString(),
-        total: (gql.liquidBase + savingsValue).toString(),
-        currentEpoch: gql.currentEpoch.toString(),
-      }
-    : null;
+  const balances: Balances = {
+    liquid: gql.liquidBase.toString(),
+    savingsValue: savingsValue.toString(),
+    total: (gql.liquidBase + savingsValue).toString(),
+    currentEpoch: gql.currentEpoch.toString(),
+  };
 
   // Principal is derived on-read from the on-chain event stream (see lib/principal-replay.ts).
   // If the replay fails, report accrued 0 (chip hidden) rather than a wrong number.

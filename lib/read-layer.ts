@@ -26,28 +26,36 @@ const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 async function fetchSavingsValue(vaultId: string): Promise<bigint> {
   if (!PACKAGE_ID || !VENUE_ID || !LENDING_MARKET_ID || !LENDING_MARKET_TYPE || !COIN_TYPE) return 0n;
-  try {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${PACKAGE_ID_LATEST}::vault::savings_balance`,
-      typeArguments: [LENDING_MARKET_TYPE, COIN_TYPE],
-      arguments: [
-        tx.object(vaultId),
-        tx.object(VENUE_ID),
-        tx.object(LENDING_MARKET_ID),
-      ],
-    });
-    const result = await graphqlClient().simulateTransaction({
-      transaction: tx,
-      checksEnabled: false,
-      include: { commandResults: true },
-    });
-    const bytes = result.commandResults?.[0]?.returnValues?.[0]?.bcs;
-    if (bytes) return BigInt(bcs.u64().parse(bytes));
-  } catch {
-    // simulate failed — no active savings position or env not configured
+  // A vault with no position still simulates successfully (savings_balance
+  // returns 0), so a simulate failure is a real transient error — retry, and
+  // THROW when exhausted. Returning 0n here would zero the Save pocket on a
+  // provider blip, and previous-data-plus-indicator always beats wrong data.
+  let lastErr: unknown;
+  for (const delay of [0, 300, 800]) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${PACKAGE_ID_LATEST}::vault::savings_balance`,
+        typeArguments: [LENDING_MARKET_TYPE, COIN_TYPE],
+        arguments: [
+          tx.object(vaultId),
+          tx.object(VENUE_ID),
+          tx.object(LENDING_MARKET_ID),
+        ],
+      });
+      const result = await graphqlClient().simulateTransaction({
+        transaction: tx,
+        checksEnabled: false,
+        include: { commandResults: true },
+      });
+      const bytes = result.commandResults?.[0]?.returnValues?.[0]?.bcs;
+      return bytes ? BigInt(bcs.u64().parse(bytes)) : 0n;
+    } catch (e) {
+      lastErr = e;
+    }
   }
-  return 0n;
+  throw lastErr;
 }
 
 // ─── Suilend live APR — delegated to lib/graphql.ts (SuilendClient) ───────────

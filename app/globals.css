@@ -28,6 +28,17 @@
   }
 }
 
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.9; }
+}
+
+.skeleton {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
 @keyframes arrival-out {
   to { opacity: 0; transform: translateY(-6px); height: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: hidden; }
 }

@@ -216,7 +216,7 @@ function FeedRow({ ev, index, total, onTap, isExpanded }: { ev: ActivityEvent; i
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function ActivityFeed({ flush }: { flush?: boolean }) {
-  const { activity: events } = useVaultData();
+  const { activity: events, isLoading } = useVaultData();
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [expanded, setExpanded] = useState(false);
   const [extraEvents, setExtraEvents] = useState<ActivityEvent[]>([]);
@@ -274,7 +274,14 @@ export function ActivityFeed({ flush }: { flush?: boolean }) {
           </span>
         </div>
 
-        {displayed.length === 0 ? (
+        {displayed.length === 0 && isLoading ? (
+          // First load, nothing known yet — shimmer rows, not a premature empty state.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', padding: '0.5rem 0' }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="skeleton" style={{ width: '100%', height: '2.25rem' }} />
+            ))}
+          </div>
+        ) : displayed.length === 0 ? (
           <div style={{ padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem' }}>
               No activity yet — the agent will start working once your vault has funds.

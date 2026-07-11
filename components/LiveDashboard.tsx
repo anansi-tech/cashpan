@@ -126,8 +126,25 @@ function PocketCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+function DashSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ padding: '0.5rem 0 0.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div className="skeleton" style={{ width: '60px', height: '0.8rem' }} />
+        <div className="skeleton" style={{ width: '200px', height: '2.6rem' }} />
+      </div>
+      <div className="skeleton" style={{ width: '100%', height: '4.5rem', borderRadius: '0.875rem' }} />
+      <div className="skeleton" style={{ width: '100%', height: '4.5rem', borderRadius: '0.875rem' }} />
+    </div>
+  );
+}
+
 export function LiveDashboard() {
-  const { balances, earnings } = useVaultData();
+  const { balances, earnings, isStale } = useVaultData();
+
+  // No data yet (fresh session, first poll pending): skeletons — never a
+  // zeroed dashboard or a premature "add money" empty state.
+  if (!balances) return <DashSkeleton />;
 
   // Flooring both pockets guarantees Spend + Save === Total on screen.
   const liquid = floorCents(Number(balances?.liquid ?? 0));
@@ -139,7 +156,7 @@ export function LiveDashboard() {
   const aprLabel = aprBps > 0 ? `earning ${(aprBps / 100).toFixed(1)}% APR` : undefined;
   const earnedInline = accrued > 0 ? `+$${floorToDecimals(accrued, 4)}` : undefined;
 
-  if (Number(balances?.liquid ?? 0) + Number(balances?.savingsValue ?? 0) === 0) {
+  if (Number(balances.liquid) + Number(balances.savingsValue) === 0) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2.5rem 1rem', textAlign: 'center' }}>
         <div style={{ fontSize: '2rem' }}>💸</div>
@@ -162,8 +179,13 @@ export function LiveDashboard() {
 
       {/* Total — lead number */}
       <div style={{ padding: '0.5rem 0 0.25rem' }}>
-        <div style={{ color: 'var(--color-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.09em', fontWeight: 600, marginBottom: '0.25rem' }}>
+        <div style={{ color: 'var(--color-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.09em', fontWeight: 600, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           Total
+          {isStale && (
+            <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400, animation: 'skeleton-pulse 1.4s ease-in-out infinite' }}>
+              updating…
+            </span>
+          )}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.03em', lineHeight: 1.1 }}>
           ${formatMoney(total)} <span style={{ fontSize: '1.1rem', color: 'var(--color-muted)', fontWeight: 400 }}>{COIN_SYM}</span>

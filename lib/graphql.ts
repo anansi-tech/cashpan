@@ -14,6 +14,7 @@ import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import { SuilendClient, LENDING_MARKET_ID, LENDING_MARKET_TYPE } from '@suilend/sdk/client';
 import { calculateDepositAprPercent } from '@suilend/sdk/utils/simulate';
 import { NETWORK } from './sui';
+import { gqlPost } from './gql-fetch';
 
 const GRAPHQL_URL  = process.env.SUI_GRAPHQL_URL ?? '';
 const GRPC_TOKEN   = process.env.SUI_GRPC_TOKEN ?? '';
@@ -89,28 +90,17 @@ export async function fetchVaultState(
   payoutAddress: string,
   coinType: string,
 ): Promise<VaultStateGQL> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        epoch { epochId }
-        vault: object(address: "${vaultId}") {
-          asMoveObject { contents { json } }
-        }
-        wallet: address(address: "${payoutAddress}") {
-          balance(coinType: "${coinType}") { totalBalance }
-        }
-      }`,
-    }),
-  });
+  const data = await gqlPost<GQLData>(`{
+    epoch { epochId }
+    vault: object(address: "${vaultId}") {
+      asMoveObject { contents { json } }
+    }
+    wallet: address(address: "${payoutAddress}") {
+      balance(coinType: "${coinType}") { totalBalance }
+    }
+  }`, 'vaultState');
 
-  const json = await res.json() as { data?: GQLData; errors?: { message: string }[] };
-  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
-  if (!json.data) throw new Error('GraphQL returned no data');
-
-  const { epoch, vault, wallet } = json.data;
+  const { epoch, vault, wallet } = data;
   const currentEpoch = BigInt(epoch?.epochId ?? 0);
   const vaultJson = vault?.asMoveObject?.contents?.json;
   if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
@@ -120,24 +110,12 @@ export async function fetchVaultState(
 }
 
 export async function fetchWalletBalance(address: string, coinType: string): Promise<string> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        wallet: address(address: "${address}") {
-          balance(coinType: "${coinType}") { totalBalance }
-        }
-      }`,
-    }),
-  });
-  const json = await res.json() as {
-    data?: { wallet?: { balance?: { totalBalance?: string } | null } };
-    errors?: { message: string }[];
-  };
-  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
-  return json.data?.wallet?.balance?.totalBalance ?? '0';
+  const data = await gqlPost<{ wallet?: { balance?: { totalBalance?: string } | null } }>(`{
+    wallet: address(address: "${address}") {
+      balance(coinType: "${coinType}") { totalBalance }
+    }
+  }`, 'walletBalance');
+  return data.wallet?.balance?.totalBalance ?? '0';
 }
 
 // ─── Minimal vault query (liquid + epoch + payoutAddress, no wallet coins) ────
@@ -149,23 +127,13 @@ export interface VaultBasic {
 }
 
 export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        epoch { epochId }
-        vault: object(address: "${vaultId}") {
-          asMoveObject { contents { json } }
-        }
-      }`,
-    }),
-  });
-  const json = await res.json() as { data?: GQLData; errors?: { message: string }[] };
-  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
-  if (!json.data) throw new Error('GraphQL returned no data');
-  const { epoch, vault } = json.data;
+  const data = await gqlPost<GQLData>(`{
+    epoch { epochId }
+    vault: object(address: "${vaultId}") {
+      asMoveObject { contents { json } }
+    }
+  }`, 'vaultBasic');
+  const { epoch, vault } = data;
   const vaultJson = vault?.asMoveObject?.contents?.json;
   if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
   return {
@@ -178,17 +146,11 @@ export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
 // ─── Raw vault JSON (all fields, no epoch) ────────────────────────────────────
 
 export async function fetchVaultJson(vaultId: string): Promise<Record<string, unknown>> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{ vault: object(address: "${vaultId}") { asMoveObject { contents { json } } } }`,
-    }),
-  });
-  const json = await res.json() as { data?: Pick<GQLData, 'vault'>; errors?: { message: string }[] };
-  if (json.errors?.length) throw new Error(`GraphQL: ${json.errors[0].message}`);
-  const vaultJson = json.data?.vault?.asMoveObject?.contents?.json;
+  const data = await gqlPost<Pick<GQLData, 'vault'>>(
+    `{ vault: object(address: "${vaultId}") { asMoveObject { contents { json } } } }`,
+    'vaultJson',
+  );
+  const vaultJson = data.vault?.asMoveObject?.contents?.json;
   if (!vaultJson) throw new Error(`Vault object not found: ${vaultId}`);
   return vaultJson;
 }
@@ -209,24 +171,12 @@ export async function fetchEventsGQL(
   eventType: string,
   last = 20,
 ): Promise<GQLEventNode[]> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        events(filter: { type: "${eventType}" }, last: ${last}) {
-          nodes { contents { json } timestamp transaction { digest } }
-        }
-      }`,
-    }),
-  });
-  const data = await res.json() as {
-    data?: { events?: { nodes?: GQLEventNode[] } };
-    errors?: { message: string }[];
-  };
-  if (data.errors?.length) throw new Error(`GraphQL events: ${data.errors[0].message}`);
-  return data.data?.events?.nodes ?? [];
+  const data = await gqlPost<{ events?: { nodes?: GQLEventNode[] } }>(`{
+    events(filter: { type: "${eventType}" }, last: ${last}) {
+      nodes { contents { json } timestamp transaction { digest } }
+    }
+  }`, 'events');
+  return data.events?.nodes ?? [];
 }
 
 export interface PackageEventsPage {
@@ -243,31 +193,19 @@ export async function queryPackageEvents(
   limit = 50,
 ): Promise<PackageEventsPage> {
   const afterClause = cursor ? `, after: ${JSON.stringify(cursor)}` : '';
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        events(filter: { type: "${eventType}" }, first: ${limit}${afterClause}) {
-          nodes { contents { json } timestamp transaction { digest } }
-          pageInfo { hasNextPage endCursor }
-        }
-      }`,
-    }),
-  });
-  const data = await res.json() as {
-    data?: {
-      events?: {
-        nodes?: GQLEventNode[];
-        pageInfo?: { hasNextPage: boolean; endCursor?: string | null };
-      };
+  const data = await gqlPost<{
+    events?: {
+      nodes?: GQLEventNode[];
+      pageInfo?: { hasNextPage: boolean; endCursor?: string | null };
     };
-    errors?: { message: string }[];
-  };
-  if (data.errors?.length) throw new Error(`GraphQL events: ${data.errors[0].message}`);
-  const nodes = data.data?.events?.nodes ?? [];
-  const pageInfo = data.data?.events?.pageInfo;
+  }>(`{
+    events(filter: { type: "${eventType}" }, first: ${limit}${afterClause}) {
+      nodes { contents { json } timestamp transaction { digest } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }`, 'packageEvents');
+  const nodes = data.events?.nodes ?? [];
+  const pageInfo = data.events?.pageInfo;
   const endCursor = pageInfo?.endCursor ?? null;
   const nextCursor = pageInfo?.hasNextPage ? endCursor : null;
   return { events: nodes, nextCursor, endCursor };
@@ -279,26 +217,16 @@ export async function findOwnedOwnerCap(
   address: string,
   packageId: string,
 ): Promise<{ ownerCapId: string; vaultId: string } | null> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        address(address: "${address}") {
-          objects(first: 1, filter: { type: "${packageId}::vault::OwnerCap" }) {
-            nodes { address contents { json } }
-          }
-        }
-      }`,
-    }),
-  });
-  const data = await res.json() as {
-    data?: { address?: { objects?: { nodes?: Array<{ address: string; contents?: { json?: Record<string, unknown> | null } | null }> } } };
-    errors?: { message: string }[];
-  };
-  if (data.errors?.length) throw new Error(`GraphQL: ${data.errors[0].message}`);
-  const node = data.data?.address?.objects?.nodes?.[0];
+  const data = await gqlPost<{
+    address?: { objects?: { nodes?: Array<{ address: string; contents?: { json?: Record<string, unknown> | null } | null }> } };
+  }>(`{
+    address(address: "${address}") {
+      objects(first: 1, filter: { type: "${packageId}::vault::OwnerCap" }) {
+        nodes { address contents { json } }
+      }
+    }
+  }`, 'ownerCap');
+  const node = data.address?.objects?.nodes?.[0];
   if (!node) return null;
   const vaultId = String(node.contents?.json?.vault_id ?? '');
   if (!vaultId) return null;
@@ -316,26 +244,14 @@ export async function getCoinsByType(
   owner: string,
   coinType: string,
 ): Promise<{ coinObjectId: string; balance: string }[]> {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json', [AUTH_HEADER]: GRPC_TOKEN },
-    body: JSON.stringify({
-      query: `{
-        address(address: "${owner}") {
-          objects(first: 50, filter: { type: "0x2::coin::Coin<${coinType}>" }) {
-            nodes { address contents { json } }
-          }
-        }
-      }`,
-    }),
-  });
-  const data = await res.json() as {
-    data?: { address?: { objects?: { nodes?: CoinObjNode[] } } };
-    errors?: { message: string }[];
-  };
-  if (data.errors?.length) throw new Error(`GraphQL coins: ${data.errors[0].message}`);
-  return (data.data?.address?.objects?.nodes ?? []).map((n) => ({
+  const data = await gqlPost<{ address?: { objects?: { nodes?: CoinObjNode[] } } }>(`{
+    address(address: "${owner}") {
+      objects(first: 50, filter: { type: "0x2::coin::Coin<${coinType}>" }) {
+        nodes { address contents { json } }
+      }
+    }
+  }`, 'coins');
+  return (data.address?.objects?.nodes ?? []).map((n) => ({
     coinObjectId: n.address,
     balance: parseCoinBalance(n.contents?.json),
   }));
