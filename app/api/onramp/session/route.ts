@@ -58,10 +58,17 @@ export async function POST(req: Request) {
     const clientIp = resolveClientIp((n) => hdrs.get(n));
     if (process.env.DEBUG) console.log('[/api/onramp/session] clientIp:', clientIp ?? '(omitted — private/unknown)');
 
-    // Brings the user back after the mobile redirect flow. Silently ignored by
-    // Coinbase until the domain is allowlisted in CDP Portal → Onramp settings.
+    // Brings the user back after the mobile redirect flow. Must reflect the
+    // ACTUAL origin (http://localhost:3000 in dev, https://cashpan.app in prod)
+    // and be allowlisted in CDP Portal → Onramp settings (silently ignored
+    // otherwise). NEXT_PUBLIC_APP_URL overrides; else derive from the request
+    // (Vercel sets x-forwarded-proto=https; plain dev has no proto header → http).
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     const host = hdrs.get('host');
-    const redirectUrl = host ? `https://${host}/` : undefined;
+    const proto = hdrs.get('x-forwarded-proto') ?? 'http';
+    const redirectUrl = appUrl
+      ? `${appUrl.replace(/\/$/, '')}/`
+      : host ? `${proto}://${host}/` : undefined;
 
     const res = await fetch(`https://${CDP_HOST}${CDP_PATH}`, {
       method: 'POST',
