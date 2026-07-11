@@ -2,10 +2,12 @@
 
 import { startLogin } from '@/lib/auth';
 import { useState, useEffect } from 'react';
+import { TrustSheet } from './TrustSheet';
 
 export function SignIn() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trustOpen, setTrustOpen] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
@@ -82,6 +84,18 @@ export function SignIn() {
         </svg>
         {loading ? 'Redirecting…' : 'Sign in with Google'}
       </button>
+
+      <button
+        onClick={() => setTrustOpen(true)}
+        style={{
+          background: 'none', border: 'none', padding: '0.25rem', cursor: 'pointer',
+          color: 'var(--color-muted)', fontSize: '0.78rem', textDecoration: 'underline',
+          textUnderlineOffset: '3px',
+        }}
+      >
+        How CashPan keeps your money safe
+      </button>
+      <TrustSheet open={trustOpen} onClose={() => setTrustOpen(false)} />
 
       {flash && (
         <p style={{ color: 'var(--color-muted)', fontSize: '0.8rem', margin: 0 }}>{flash}</p>

@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthProvider';
 import { useVaultData } from './VaultDataProvider';
 import { formatMoney } from '@/lib/format';
+import { TrustSheet } from './TrustSheet';
 
 const numInputStyle: React.CSSProperties = {
   width: '4rem',
@@ -212,9 +213,10 @@ export function ProfileContent({
   compact?: boolean;
 }) {
   const { signOut, user } = useAuth();
-  const { balances } = useVaultData();
+  const { balances, earnings } = useVaultData();
   const [imgErr, setImgErr] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [trustOpen, setTrustOpen] = useState(false);
 
   const displayName = user?.name ?? `${address.slice(0, 8)}…${address.slice(-4)}`;
   const displaySub  = user?.email ? `${user.email} · Google` : null;
@@ -259,7 +261,31 @@ export function ProfileContent({
       {/* 3. Auto-save rule */}
       <AutoSaveRule compact={compact} />
 
-      {/* 4. Developer details */}
+      {/* 4. How CashPan works (trust sheet) */}
+      <div style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <button
+          onClick={() => setTrustOpen(true)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: compact ? '0.5rem 1rem' : '0.75rem 0',
+            minHeight: compact ? undefined : '44px',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--color-text)', fontSize: '0.82rem',
+          }}
+        >
+          <span>How CashPan works</span>
+          <span style={{ opacity: 0.5 }}>›</span>
+        </button>
+      </div>
+      <TrustSheet
+        open={trustOpen}
+        onClose={() => setTrustOpen(false)}
+        aprBps={earnings?.aprBps}
+        vaultId={vaultId}
+      />
+
+      {/* 5. Developer details */}
       <div style={{ borderBottom: '1px solid var(--color-border)' }}>
         <button
           onClick={() => setShowDetails(!showDetails)}
@@ -289,7 +315,7 @@ export function ProfileContent({
         )}
       </div>
 
-      {/* 5. Sign out */}
+      {/* 6. Sign out */}
       <button
         onClick={signOut}
         style={{
@@ -318,6 +344,10 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
+      const target = e.target as Element;
+      // Clicks inside the TrustSheet (fixed-position, outside the dropdown DOM)
+      // must not close the dropdown — that would unmount the sheet mid-read.
+      if (target.closest?.('[data-trust-sheet]')) return;
       if (!menuRef.current?.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
