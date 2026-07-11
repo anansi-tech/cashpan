@@ -12,6 +12,7 @@ import { OnboardingModal } from '@/components/OnboardingModal';
 import { VaultDataProvider } from '@/components/VaultDataProvider';
 import { AccountMenu } from '@/components/AccountMenu';
 import { SessionGuard } from '@/components/SessionGuard';
+import { OnrampReturnListener } from '@/components/OnrampReturnListener';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,7 @@ export default async function Page() {
 
       <VaultDataProvider initial={{ balances, earnings, activity }}>
         <SessionGuard />
+        <OnrampReturnListener />
         {/* Header — border spans full width, content centered at 1200px */}
         <header style={{ borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1.5rem' }}>

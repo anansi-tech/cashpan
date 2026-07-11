@@ -66,9 +66,10 @@ export async function POST(req: Request) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     const host = hdrs.get('host');
     const proto = hdrs.get('x-forwarded-proto') ?? 'http';
-    const redirectUrl = appUrl
-      ? `${appUrl.replace(/\/$/, '')}/`
-      : host ? `${proto}://${host}/` : undefined;
+    const origin = appUrl ? appUrl.replace(/\/$/, '') : host ? `${proto}://${host}` : undefined;
+    // /onramp/callback relays back to the app: postMessage+close for the
+    // desktop popup, replace into / for the mobile redirect.
+    const redirectUrl = origin ? `${origin}/onramp/callback` : undefined;
 
     const res = await fetch(`https://${CDP_HOST}${CDP_PATH}`, {
       method: 'POST',
