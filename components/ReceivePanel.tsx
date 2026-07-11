@@ -5,6 +5,8 @@ import { useDeposit } from '@/lib/use-deposit';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import { formatMoney } from '@/lib/format';
 import { openOnramp } from '@/lib/onramp';
+import { TrustSheet } from './TrustSheet';
+import { useVaultData } from './VaultDataProvider';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
@@ -39,7 +41,7 @@ function CopyChip({ value, label }: { value: string; label: string }) {
 
 // ─── Add money (Coinbase Onramp) ──────────────────────────────────────────────
 
-function AddMoneySection() {
+function AddMoneySection({ onTrust }: { onTrust: () => void }) {
   const [amount, setAmount] = useState('');
   const [state, setState] = useState<'idle' | 'opening' | 'error'>('idle');
   const [error, setError] = useState('');
@@ -99,6 +101,17 @@ function AddMoneySection() {
         Debit card, bank, or Apple Pay · arrives in minutes · powered by Coinbase
       </div>
 
+      <button
+        onClick={onTrust}
+        style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          color: 'var(--color-muted)', fontSize: '0.75rem', textDecoration: 'underline',
+          textUnderlineOffset: '3px', alignSelf: 'center',
+        }}
+      >
+        Who holds my money?
+      </button>
+
       {state === 'error' && (
         <div style={{ fontSize: '0.82rem', color: 'rgba(252,165,165,0.9)' }}>{error}</div>
       )}
@@ -146,14 +159,23 @@ function ReceiveCryptoSection({ address }: { address: string }) {
 
 export function ReceivePanel({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const { totalOwned, depositedAmount, state: depositState, error: depositError, deposit: handleDeposit } = useDeposit(vaultCtx);
+  const { earnings } = useVaultData();
   const address = vaultCtx.userAddress ?? '';
   const [showCrypto, setShowCrypto] = useState(false);
+  const [trustOpen, setTrustOpen] = useState(false);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '1.5rem 1.25rem', gap: '1.5rem' }}>
 
+      <TrustSheet
+        open={trustOpen}
+        onClose={() => setTrustOpen(false)}
+        aprBps={earnings?.aprBps}
+        vaultId={vaultCtx.vaultId}
+      />
+
       {/* Primary: Add money via debit card / Apple Pay */}
-      <AddMoneySection />
+      <AddMoneySection onTrust={() => setTrustOpen(true)} />
 
       <div style={{ height: '1px', background: 'var(--color-border)' }} />
 
