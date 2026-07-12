@@ -27,7 +27,7 @@ export interface VaultRecord {
   buffer?: string;
   band?: string;
   /** Coinbase offramp deposit addresses seen for this user — pure label cache
-      so cash-out sends read "bank (cash out)" in activity. Optional, unqueried. */
+      so cash-out sends read "Coinbase (cash out)" in activity. Optional, unqueried. */
   offrampAddresses?: string[];
 }
 

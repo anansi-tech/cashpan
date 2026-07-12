@@ -19,7 +19,7 @@ import { partnerUserRef, cdpFetch } from '@/lib/offramp-server';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
+export async function POST(req: Request) {
   const cookieStore = await cookies();
   const sub = cookieStore.get('cashpan-sub')?.value;
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -32,6 +32,7 @@ export async function POST() {
   if (!vault) return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
 
   try {
+    const { presetCryptoAmount } = await req.json().catch(() => ({})) as { presetCryptoAmount?: string };
     const hdrs = await headers();
     const clientIp = resolveClientIp((n) => hdrs.get(n));
 
@@ -58,6 +59,9 @@ export async function POST() {
     const url = new URL('https://pay.coinbase.com/v3/sell/input');
     url.searchParams.set('sessionToken', data.token);
     url.searchParams.set('partnerUserRef', partnerUserRef(vault.identityKey));
+    if (presetCryptoAmount && Number(presetCryptoAmount) > 0) {
+      url.searchParams.set('presetCryptoAmount', presetCryptoAmount);
+    }
     if (origin) url.searchParams.set('redirectUrl', `${origin}/onramp/callback`);
 
     return NextResponse.json({ url: url.toString() });

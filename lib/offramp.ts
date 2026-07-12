@@ -40,12 +40,16 @@ export function getCashOutSentDigest(): string | null {
 }
 
 /** Open the Coinbase sell widget. Same popup/redirect pattern as onramp. */
-export async function openCashOut(): Promise<void> {
+export async function openCashOut(presetCryptoAmount?: string): Promise<void> {
   const isDesktop = window.matchMedia('(min-width: 1024px)').matches;
   const popup = isDesktop ? window.open('about:blank', '_blank', 'popup,width=460,height=720') : null;
 
   try {
-    const res = await fetch('/api/offramp/session', { method: 'POST' });
+    const res = await fetch('/api/offramp/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ presetCryptoAmount }),
+    });
     const data = await res.json().catch(() => ({})) as { url?: string; error?: string };
     if (!res.ok || !data.url) throw new Error(data.error ?? 'Could not start the cash-out flow');
 

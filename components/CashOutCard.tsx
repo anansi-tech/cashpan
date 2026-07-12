@@ -19,6 +19,9 @@ interface OfframpTx {
   status: string;
   sellAmount?: string;
   currency: string;
+  fiatAmount?: string;
+  fiatCurrency?: string;
+  paymentMethod?: string;
   asset: string;
   network: string;
   toAddress?: string;
@@ -52,12 +55,15 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const [error, setError] = useState('');
   const pollIdx = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollInFlight = useRef(false);
   const phaseRef = useRef<Phase>('waiting');
   phaseRef.current = phase;
 
   const startedAt = cashOutStartedAt();
 
   const poll = useCallback(async () => {
+    if (pollInFlight.current) return;
+    pollInFlight.current = true;
     try {
       const res = await fetch('/api/offramp/status', { cache: 'no-store' });
       const data = await res.json().catch(() => ({})) as { transaction?: OfframpTx | null; error?: string };
@@ -85,6 +91,7 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
         }
       }
     } catch { /* transient — keep polling */ }
+    finally { pollInFlight.current = false; }
 
     // PRE-ORDER give-up only: if no order has appeared within ~10 minutes of
     // the widget opening (and nothing was sent), stop quietly — the staged
@@ -104,7 +111,19 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   useEffect(() => {
     void poll();
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    // Mobile browsers throttle timers while Coinbase is in front. Resume with
+    // a fresh poll instead of waiting for a delayed background timeout.
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      pollIdx.current = 0;
+      void poll();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [poll]);
 
   const handleSign = async () => {
@@ -116,7 +135,13 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       // send, so Coinbase's from_address check is trivially the sender.
       const result = await executeWalletSendTransaction(humanToBase(tx.sellAmount), tx.toAddress, vaultCtx.coinType);
       setCashOutSent(result.digest); // survives reloads — resume at 'sent'
+      // The pre-send poll may already be at the 60s backoff. Start over now
+      // that Coinbase has an on-chain transaction to detect.
+      phaseRef.current = 'sent';
       setPhase('sent');
+      if (timerRef.current) clearTimeout(timerRef.current);
+      pollIdx.current = 0;
+      void poll();
       refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed. Try again.');
@@ -154,7 +179,7 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     return (
       <Card accent="var(--color-savings)">
         <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)' }}>
-          Cash out ${formatMoneyHuman(amount)} to your bank
+          Cash out ${formatMoneyHuman(amount)} with Coinbase
         </div>
         <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
           Send ${formatMoneyHuman(amount)} {tx?.asset ?? 'USDC'} to Coinbase to complete it.
@@ -210,16 +235,30 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   }
 
   if (phase === 'paid') {
+    const amount = formatMoneyHuman(tx?.fiatAmount ?? tx?.sellAmount ?? '0');
+    const currency = tx?.fiatCurrency ?? 'USD';
+    const money = currency === 'USD' ? `$${amount}` : `${currency} ${amount}`;
+    const method = tx?.paymentMethod?.toUpperCase();
+    const title = method === 'ACH_BANK_ACCOUNT'
+      ? `✓ ${money} is on the way to your bank.`
+      : method === 'FIAT_WALLET'
+        ? `✓ ${money} is now in your Coinbase ${currency} balance.`
+        : method === 'PAYPAL'
+          ? `✓ ${money} is on the way to your PayPal account.`
+          : `✓ Your ${money} cash-out is complete.`;
+    const detail = method === 'ACH_BANK_ACCOUNT'
+      ? 'Bank transfers (ACH) take 1–3 business days. Coinbase will also text or email you updates.'
+      : 'Coinbase will also text or email you updates.';
     return (
       <Card accent="var(--color-savings)">
         <Row>
           <span style={{ fontSize: '0.875rem', color: 'var(--color-savings)', fontWeight: 600 }}>
-            ✓ ${formatMoneyHuman(tx?.sellAmount ?? '0')} is on the way to your bank.
+            {title}
           </span>
           <button onClick={dismiss} style={ghostBtn}>Done</button>
         </Row>
         <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-          Bank transfers (ACH) take 1–3 business days. Coinbase will also text or email you updates.
+          {detail}
         </span>
       </Card>
     );

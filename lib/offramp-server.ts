@@ -2,7 +2,8 @@
  * Coinbase Offramp — server helpers (JWT, partnerUserRef, availability cache).
  *
  * Same CDP family as onramp but the flow inverts: Coinbase tells US where to
- * send; the user signs an on-chain send; Coinbase pays out fiat to their bank.
+ * send; the user signs an on-chain send; Coinbase pays out to their selected
+ * bank, PayPal, or Coinbase balance destination.
  */
 
 import { createHash } from 'crypto';

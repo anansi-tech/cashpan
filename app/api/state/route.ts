@@ -27,7 +27,7 @@ export async function GET(): Promise<Response> {
   for (const c of contacts) addressToName[c.address.toLowerCase()] = c.label;
   // Cash-out sends to Coinbase deposit addresses get an honest label —
   // an off-chain label on a real ledger event, never a fabricated event.
-  for (const a of vault.offrampAddresses ?? []) addressToName[a.toLowerCase()] = 'bank (cash out)';
+  for (const a of vault.offrampAddresses ?? []) addressToName[a.toLowerCase()] = 'Coinbase (cash out)';
 
   // One GraphQL call (vault + epoch + wallet coins) + one simulateTransaction (savings).
   // Activity, APR, and principal replay run concurrently alongside them.

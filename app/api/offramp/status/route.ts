@@ -50,10 +50,11 @@ export async function GET() {
     if (process.env.DEBUG) console.log('[/api/offramp/status] raw tx:', JSON.stringify(tx).slice(0, 600));
 
     const sellAmount = tx.sell_amount as { value?: string; currency?: string } | undefined;
-    const toAddress = str(tx.to_address) ?? str(tx.deposit_address);
+    const total = tx.total as { value?: string; currency?: string } | undefined;
+    const toAddress = str(tx.to_address) ?? str(tx.toAddress) ?? str(tx.deposit_address);
 
     // Persist the Coinbase deposit address so the on-chain send gets labeled
-    // "bank (cash out)" in activity — an off-chain label on a real ledger
+    // "Coinbase (cash out)" in activity — an off-chain label on a real ledger
     // event, never a fabricated event.
     if (toAddress) await addOfframpAddress(vault.identityKey, toAddress).catch(() => {});
 
@@ -61,7 +62,10 @@ export async function GET() {
       transaction: {
         status: str(tx.status) ?? 'UNKNOWN',
         sellAmount: str(sellAmount?.value),
-        currency: str(sellAmount?.currency) ?? 'USD',
+        currency: str(sellAmount?.currency) ?? str(tx.asset) ?? 'USDC',
+        fiatAmount: str(total?.value),
+        fiatCurrency: str(total?.currency) ?? 'USD',
+        paymentMethod: str(tx.payment_method) ?? str(tx.paymentMethod),
         asset: str(tx.asset) ?? 'USDC',
         network: str(tx.network) ?? 'sui',
         toAddress,
@@ -71,7 +75,7 @@ export async function GET() {
         createdAt: str(tx.created_at),
         updatedAt: str(tx.updated_at),
       },
-    });
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     console.error('[/api/offramp/status]', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

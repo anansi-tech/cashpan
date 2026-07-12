@@ -164,7 +164,7 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   const handleStaged = async () => {
     setCashOutState('opening');
     try {
-      await openCashOut();
+      await openCashOut(cashOutMax ? spendHuman.replace(/,/g, '') : cashOutAmount);
       onClose(); // CashOutCard takes over in the proposal slot
     } catch (e) {
       // Coinbase's rejection reason verbatim — they know eligibility, we don't.
@@ -311,12 +311,12 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
       {step === 'recipient' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Cash out to bank (Coinbase offramp) — staged: amount here first,
+          {/* Cash out with Coinbase — staged: amount here first,
               funds move to the wallet, then the Coinbase widget opens with
               that balance available. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              🏦 Cash out to your bank
+              🏦 Cash out with Coinbase
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <div style={{
@@ -365,7 +365,7 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
               </button>
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
-              Cashing out uses your Coinbase account (free) — you&apos;ll sign in or create one.
+              Choose a bank account or your Coinbase USD balance in Coinbase. You&apos;ll sign in or create an account.
               Availability depends on your state.
               {cashOutHint === false && ' May not be available in your state.'}
             </div>
