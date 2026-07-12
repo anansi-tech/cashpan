@@ -123,12 +123,14 @@ export async function handleCallback(): Promise<ZkLoginSession> {
   sessionStorage.setItem(KEYS.ZK_PROOF, JSON.stringify(zkProof));
   sessionStorage.setItem(KEYS.USER, JSON.stringify(user));
 
-  // Set HTTP-only server session cookie so API routes can resolve the vault
-  await fetch('/api/auth/session', {
+  // Set the SIGNED server session cookie. The server derives the sub from the
+  // Google id_token itself — a client-claimed sub is never trusted.
+  const sessionRes = await fetch('/api/auth/session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sub }),
+    body: JSON.stringify({ jwt }),
   });
+  if (!sessionRes.ok) throw new Error('Session could not be established — try signing in again');
 
   return user;
 }

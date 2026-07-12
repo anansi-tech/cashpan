@@ -10,8 +10,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { getActiveVault, addOfframpAddress } from '@/lib/db/vault-registry';
+import { getAuthedSub } from '@/lib/session';
 import { suiNetwork } from '@/lib/sui';
 import { partnerUserRef, cdpFetch } from '@/lib/offramp-server';
 
@@ -21,9 +21,8 @@ type RawTx = Record<string, unknown>;
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
-export async function GET() {
-  const cookieStore = await cookies();
-  const sub = cookieStore.get('cashpan-sub')?.value;
+export async function GET(req: Request) {
+  const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const vault = await getActiveVault(sub, suiNetwork());

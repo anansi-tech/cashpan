@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { getActiveVault } from '@/lib/db/vault-registry';
+import { getAuthedSub } from '@/lib/session';
 import { fetchSavingsValue, getAgentActivity } from '@/lib/read-layer';
 import { getReplayedPrincipal } from '@/lib/principal-replay';
 import { fetchVaultState, getLiveAprBps } from '@/lib/graphql';
@@ -12,9 +12,8 @@ export const dynamic = 'force-dynamic';
 
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
-export async function GET(): Promise<Response> {
-  const cookieStore = await cookies();
-  const sub = cookieStore.get('cashpan-sub')?.value;
+export async function GET(req: Request): Promise<Response> {
+  const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const network = suiNetwork();

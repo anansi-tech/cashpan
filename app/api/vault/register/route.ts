@@ -1,18 +1,19 @@
 /**
  * POST /api/vault/register
  * Called by ProvisionVault after the user signs the create_vault tx.
- * Reads cashpan-sub cookie to bind the vault to the authenticated user.
+ * Binds the vault to the signature-verified session sub (lib/session.ts).
  */
 
 import { NextResponse } from 'next/server';
 import { registerVault } from '@/lib/db/vault-registry';
+import { getAuthedSub } from '@/lib/session';
 import { suiNetwork } from '@/lib/sui';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   // Verify the request comes from the authenticated user
-  const sub = req.headers.get('cookie')?.match(/(?:^|;\s*)cashpan-sub=([^;]+)/)?.[1];
+  const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const { vaultId, ownerCapId, payoutAddress, salt, coinType } =
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
 
   try {
     const vault = await registerVault({
-      identityKey: decodeURIComponent(sub),
+      identityKey: sub,
       network: suiNetwork(),
       vaultId,
       ownerCapId,

@@ -11,7 +11,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
+import { headers } from 'next/headers';
+import { getAuthedSub } from '@/lib/session';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { suiNetwork } from '@/lib/sui';
 import { resolveClientIp } from '@/lib/client-ip';
@@ -20,8 +21,7 @@ import { partnerUserRef, cdpFetch } from '@/lib/offramp-server';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const sub = cookieStore.get('cashpan-sub')?.value;
+  const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   if (!process.env.CDP_API_KEY || !process.env.CDP_API_SECRET) {

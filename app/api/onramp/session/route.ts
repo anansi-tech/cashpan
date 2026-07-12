@@ -15,7 +15,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
+import { headers } from 'next/headers';
+import { getAuthedSub } from '@/lib/session';
 import { generateJwt } from '@coinbase/cdp-sdk/auth';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { suiNetwork } from '@/lib/sui';
@@ -27,8 +28,7 @@ const CDP_HOST = 'api.cdp.coinbase.com';
 const CDP_PATH = '/platform/v2/onramp/sessions';
 
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const sub = cookieStore.get('cashpan-sub')?.value;
+  const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const apiKeyId = process.env.CDP_API_KEY;

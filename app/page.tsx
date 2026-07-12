@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { verifySessionCookie } from '@/lib/session';
 import { getBalances, getEarnings, getAgentActivity } from '@/lib/read-layer';
 import { validateReserveIndex } from '@/lib/suilend-sanity';
 import { getActiveVault } from '@/lib/db/vault-registry';
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic';
 export default async function Page() {
   void validateReserveIndex();
   const cookieStore = await cookies();
-  const sub = cookieStore.get('cashpan-sub')?.value;
+  const sub = verifySessionCookie(cookieStore.get('cashpan-sub')?.value);
 
   if (!sub) return <SignIn />;
 

@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getAuthedSub } from '@/lib/session';
 import { getActiveVault, updateSettings } from '@/lib/db/vault-registry';
 import { suiNetwork } from '@/lib/sui';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request): Promise<Response> {
-  const cookieStore = await cookies();
-  const sub = cookieStore.get('cashpan-sub')?.value;
+  const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const vault = await getActiveVault(sub, suiNetwork());

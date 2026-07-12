@@ -1,34 +1,42 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { verifyGoogleIdToken } from '@/lib/google-id-token';
+import { sealSession, verifySessionCookie, SESSION_COOKIE, SESSION_TTL_S } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
-// POST /api/auth/session  — set cashpan-sub HTTP-only cookie after OAuth callback
+// POST /api/auth/session — mint the signed session cookie after OAuth callback.
+// The sub comes ONLY from a Google-signed id_token verified server-side; a
+// client-claimed sub is never trusted (the old {sub} body minted sessions for
+// any account — see CDP finding).
 export async function POST(req: Request) {
-  const { sub } = await req.json() as { sub: string };
-  if (!sub) return NextResponse.json({ error: 'sub required' }, { status: 400 });
+  const { jwt } = await req.json().catch(() => ({})) as { jwt?: string };
+  if (!jwt) return NextResponse.json({ error: 'id_token required' }, { status: 401 });
+
+  const sub = await verifyGoogleIdToken(jwt);
+  if (!sub) return NextResponse.json({ error: 'Invalid id_token' }, { status: 401 });
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set('cashpan-sub', sub, {
+  res.cookies.set(SESSION_COOKIE, sealSession(sub), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    maxAge: SESSION_TTL_S,
   });
   return res;
 }
 
-// GET /api/auth/session  — client checks whether server cookie is still set
-export async function GET() {
-  const cookieStore = await cookies();
-  const has_session = !!cookieStore.get('cashpan-sub')?.value;
+// GET /api/auth/session — client checks whether a VALID server session exists
+export async function GET(req: Request) {
+  const cookie = req.headers.get('cookie') ?? '';
+  const m = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  const has_session = verifySessionCookie(m ? decodeURIComponent(m[1]) : null) !== null;
   return NextResponse.json({ has_session });
 }
 
-// DELETE /api/auth/session  — clear cookie on sign out
+// DELETE /api/auth/session — clear cookie on sign out
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.delete('cashpan-sub');
+  res.cookies.delete(SESSION_COOKIE);
   return res;
 }

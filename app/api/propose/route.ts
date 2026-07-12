@@ -17,7 +17,8 @@ const MIN_MOVE = 0.01; // dust floor, mirrors lib/brain.ts MIN_MOVE
 
 export async function POST(req: Request) {
   try {
-    const vault = await resolveVault(req.clone());
+    const vault = await resolveVault(req.clone()).catch(() => null);
+    if (!vault) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     const { action, amount, max } = await req.json() as {
       action?: 'sweep' | 'topup' | 'withdrawToMe';
       amount?: string;

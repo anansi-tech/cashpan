@@ -70,7 +70,8 @@ If the user's message doesn't map to a balance read, a money move, or a clear qu
 export async function POST(req: Request) {
   const [reqForVault, reqForBody] = [req, req.clone()];
   const { messages } = await reqForBody.json();
-  const vault = await resolveVault(reqForVault);
+  const vault = await resolveVault(reqForVault).catch(() => null);
+  if (!vault) return new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
   const { vaultId } = vault;
 
   const contacts = vault.contacts ?? [];
