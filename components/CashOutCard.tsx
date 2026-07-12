@@ -173,6 +173,10 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
             Your wallet only has ${formatMoney(walletBalance || '0')} staged — the order can&apos;t be covered.
           </div>
         )}
+        <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
+          Your payout goes to the account you pick in Coinbase — bank, or your Coinbase USD
+          balance. Bank not listed? Verify it at coinbase.com → Payment methods.
+        </div>
         {error && <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>{error}</div>}
         <Row>
           <button onClick={dismiss} disabled={phase === 'sending'} style={ghostBtn}>Cancel</button>
