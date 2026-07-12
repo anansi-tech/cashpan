@@ -9,7 +9,7 @@ import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zkl
 import { useVaultData } from './VaultDataProvider';
 import { formatMoneyHuman } from '@/lib/format';
 import { isOnrampPending, clearOnrampPending } from '@/lib/onramp';
-import { isCashOutActive } from '@/lib/offramp';
+import { isCashOutActive, cashOutStartedAt } from '@/lib/offramp';
 import { CashOutCard } from './CashOutCard';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
@@ -96,8 +96,11 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     bump((n) => n + 1);
   }, []);
 
-  // An active cash-out owns the slot outright — one visible card, always.
-  if (isCashOutActive()) return <CashOutCard vaultCtx={vaultCtx} />;
+  // An active cash-out owns the slot outright — one visible card, always;
+  // arrival/sweep/topup proposals are structurally suppressed until the
+  // session concludes (recovery is the fallback, never a race). Keyed by
+  // session start so cash-out #2 gets a FRESH component, not #1's stale phase.
+  if (isCashOutActive()) return <CashOutCard key={cashOutStartedAt()} vaultCtx={vaultCtx} />;
 
   const visible = proposals.filter((p) => !isDismissed(p, settings.band));
   const current = visible[0];

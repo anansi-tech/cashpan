@@ -8,8 +8,8 @@ import { executeWalletSendTransaction } from '@/lib/execute-zklogin';
 import { humanToBase } from '@/lib/coin-config';
 import { formatMoney, formatMoneyHuman } from '@/lib/format';
 import { clearCashOut, cashOutStartedAt, setCashOutSent, getCashOutSentDigest } from '@/lib/offramp';
+import { classifyOfframpPoll } from '@/lib/offramp-match';
 
-const WINDOW_MS = 30 * 60 * 1000;  // Coinbase voids the sell 30 min after "Cash out now"
 const NO_ORDER_GIVE_UP_MS = 10 * 60 * 1000; // PRE-ORDER only: stop waiting if no order ever appears
 // Backoff stretches to 60s — post-send polling runs until a TERMINAL status,
 // however long the sell takes. Never freeze the card mid-flight.
@@ -64,32 +64,24 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       const t = data.transaction;
 
       if (t) {
-        // Ignore transactions older than this cash-out attempt.
-        const createdMs = t.createdAt ? new Date(t.createdAt).getTime() : Date.now();
-        if (createdMs >= startedAt - 60_000) {
+        const current = phaseRef.current;
+        const decision = classifyOfframpPoll(
+          t,
+          startedAt,
+          current === 'gone' || current === 'paid' || current === 'failed' || current === 'expired' ? 'waiting' : current,
+          Date.now(),
+        );
+        // 'wait' covers historical transactions too — they can never satisfy,
+        // clear, or terminate this session (prior regression: an old terminal
+        // tx concluded a live session before the new order propagated).
+        if (decision !== 'wait') {
           setTx(t);
-          const s = t.status.toUpperCase();
-          const current = phaseRef.current;
-          // Terminal states KEEP the active flag — the card must stay visible
-          // until the user dismisses it (clearing immediately let the banner
-          // unmount the card within one poll, before the outcome was seen).
-          if (s.includes('SUCCESS')) {
-            setPhase('paid');
-            refresh();
-            return; // terminal — stop polling
-          }
-          if (s.includes('FAILED') || s.includes('EXPIRED') || s.includes('CANCEL')) {
-            setPhase(current === 'sent' ? 'failed' : 'expired');
-            return; // terminal
-          }
-          if (current === 'waiting' && t.toAddress && t.sellAmount) {
-            // Coinbase has the order — time for the user to sign the send.
-            if (Date.now() - createdMs > WINDOW_MS) {
-              setPhase('expired');
-              return;
-            }
-            setPhase('confirm');
-          }
+          // Terminal states KEEP the active flag — the card stays visible
+          // until the user dismisses it.
+          if (decision === 'paid') { setPhase('paid'); refresh(); return; }
+          if (decision === 'failed') { setPhase('failed'); return; }
+          if (decision === 'expired') { setPhase('expired'); return; }
+          if (decision === 'confirm' && current === 'waiting') setPhase('confirm');
         }
       }
     } catch { /* transient — keep polling */ }
