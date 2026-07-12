@@ -124,7 +124,7 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       <div className="shell-mobile">
         <div className="mobile-content">
           {/* Home */}
-          <div style={{ display: mobileTab === 'home' ? 'flex' : 'none', flexDirection: 'column', gap: 0, padding: '1rem', overflowY: 'auto', flex: 1 }}>
+          <div style={{ display: mobileTab === 'home' ? 'flex' : 'none', flexDirection: 'column', gap: '0.875rem', padding: '1rem', overflowY: 'auto', flex: 1 }}>
             <LiveDashboard />
             <ProposalBanner vaultCtx={vaultCtx} />
           </div>
