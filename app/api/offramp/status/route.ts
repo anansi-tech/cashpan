@@ -43,7 +43,10 @@ export async function GET() {
     const txs = data.transactions ?? [];
     if (txs.length === 0) return NextResponse.json({ transaction: null });
 
-    const tx = txs[0]; // newest first per API convention
+    // Don't trust list ordering — pick the newest by created_at explicitly.
+    const tx = [...txs].sort((a, b) =>
+      new Date(String(b.created_at ?? 0)).getTime() - new Date(String(a.created_at ?? 0)).getTime(),
+    )[0];
     if (process.env.DEBUG) console.log('[/api/offramp/status] raw tx:', JSON.stringify(tx).slice(0, 600));
 
     const sellAmount = tx.sell_amount as { value?: string; currency?: string } | undefined;
@@ -62,6 +65,9 @@ export async function GET() {
         asset: str(tx.asset) ?? 'USDC',
         network: str(tx.network) ?? 'sui',
         toAddress,
+        // Set once Coinbase has DETECTED the user's on-chain deposit —
+        // drives the "Coinbase received → selling" progressive state.
+        txHash: str(tx.tx_hash),
         createdAt: str(tx.created_at),
         updatedAt: str(tx.updated_at),
       },

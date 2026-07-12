@@ -20,7 +20,23 @@ export function cashOutStartedAt(): number {
 }
 
 export function clearCashOut(): void {
-  if (typeof window !== 'undefined') sessionStorage.removeItem(ACTIVE_KEY);
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem(ACTIVE_KEY);
+    sessionStorage.removeItem(SENT_KEY);
+  }
+}
+
+// ── Sent marker — survives reloads so a mid-flight cash-out resumes at the
+//    "sent" state instead of re-offering the send (double-sign hazard).
+
+const SENT_KEY = 'cashpan_offramp_sent_digest';
+
+export function setCashOutSent(digest: string): void {
+  if (typeof window !== 'undefined') sessionStorage.setItem(SENT_KEY, digest);
+}
+
+export function getCashOutSentDigest(): string | null {
+  return typeof window !== 'undefined' ? sessionStorage.getItem(SENT_KEY) : null;
 }
 
 /** Open the Coinbase sell widget. Same popup/redirect pattern as onramp. */

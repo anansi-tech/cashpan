@@ -7,11 +7,13 @@ import type { VaultTxContext } from '@/lib/vault-tx';
 import { executeWalletSendTransaction } from '@/lib/execute-zklogin';
 import { humanToBase } from '@/lib/coin-config';
 import { formatMoney, formatMoneyHuman } from '@/lib/format';
-import { clearCashOut, cashOutStartedAt } from '@/lib/offramp';
+import { clearCashOut, cashOutStartedAt, setCashOutSent, getCashOutSentDigest } from '@/lib/offramp';
 
 const WINDOW_MS = 30 * 60 * 1000;  // Coinbase voids the sell 30 min after "Cash out now"
-const NO_ORDER_GIVE_UP_MS = 10 * 60 * 1000; // stop waiting if no order ever appears
-const POLL_STEPS_MS = [3_000, 5_000, 8_000, 13_000, 21_000, 30_000]; // then stay at 30s
+const NO_ORDER_GIVE_UP_MS = 10 * 60 * 1000; // PRE-ORDER only: stop waiting if no order ever appears
+// Backoff stretches to 60s — post-send polling runs until a TERMINAL status,
+// however long the sell takes. Never freeze the card mid-flight.
+const POLL_STEPS_MS = [3_000, 5_000, 8_000, 13_000, 21_000, 30_000, 45_000, 60_000];
 
 interface OfframpTx {
   status: string;
@@ -20,6 +22,8 @@ interface OfframpTx {
   asset: string;
   network: string;
   toAddress?: string;
+  /** Set once Coinbase has detected the on-chain deposit. */
+  txHash?: string;
   createdAt?: string;
 }
 
@@ -41,7 +45,9 @@ type Phase =
  */
 export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const { walletBalance, refresh } = useVaultData();
-  const [phase, setPhase] = useState<Phase>('waiting');
+  // Resume on load: a persisted sent-digest means the send already happened —
+  // never re-offer the confirm (double-sign hazard); jump straight to 'sent'.
+  const [phase, setPhase] = useState<Phase>(() => (getCashOutSentDigest() ? 'sent' : 'waiting'));
   const [tx, setTx] = useState<OfframpTx | null>(null);
   const [error, setError] = useState('');
   const pollIdx = useRef(0);
@@ -64,22 +70,22 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           setTx(t);
           const s = t.status.toUpperCase();
           const current = phaseRef.current;
+          // Terminal states KEEP the active flag — the card must stay visible
+          // until the user dismisses it (clearing immediately let the banner
+          // unmount the card within one poll, before the outcome was seen).
           if (s.includes('SUCCESS')) {
             setPhase('paid');
-            clearCashOut();
             refresh();
             return; // terminal — stop polling
           }
           if (s.includes('FAILED') || s.includes('EXPIRED') || s.includes('CANCEL')) {
             setPhase(current === 'sent' ? 'failed' : 'expired');
-            clearCashOut();
             return; // terminal
           }
           if (current === 'waiting' && t.toAddress && t.sellAmount) {
             // Coinbase has the order — time for the user to sign the send.
             if (Date.now() - createdMs > WINDOW_MS) {
               setPhase('expired');
-              clearCashOut();
               return;
             }
             setPhase('confirm');
@@ -88,10 +94,11 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       }
     } catch { /* transient — keep polling */ }
 
-    // Never poll forever: if no order has appeared within ~10 minutes of the
-    // widget opening, give up quietly. The staged USDC sits at the wallet, so
-    // the slot reverts to the arrival proposal ("$X arrived — add it back?").
-    if (phaseRef.current === 'waiting' && Date.now() - startedAt > NO_ORDER_GIVE_UP_MS) {
+    // PRE-ORDER give-up only: if no order has appeared within ~10 minutes of
+    // the widget opening (and nothing was sent), stop quietly — the staged
+    // USDC sits at the wallet and the arrival proposal recovers it.
+    // POST-SEND polling never gives up: it runs until a terminal status.
+    if (phaseRef.current === 'waiting' && !getCashOutSentDigest() && Date.now() - startedAt > NO_ORDER_GIVE_UP_MS) {
       clearCashOut();
       setPhase('gone');
       refresh();
@@ -115,7 +122,8 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     try {
       // Funds were staged to the wallet in step 1 — this is a plain wallet
       // send, so Coinbase's from_address check is trivially the sender.
-      await executeWalletSendTransaction(humanToBase(tx.sellAmount), tx.toAddress, vaultCtx.coinType);
+      const result = await executeWalletSendTransaction(humanToBase(tx.sellAmount), tx.toAddress, vaultCtx.coinType);
+      setCashOutSent(result.digest); // survives reloads — resume at 'sent'
       setPhase('sent');
       refresh();
     } catch (e) {
@@ -181,9 +189,26 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   }
 
   if (phase === 'sent') {
+    const digest = getCashOutSentDigest();
+    const received = !!tx?.txHash; // Coinbase has detected the on-chain deposit
     return (
       <Card accent="var(--color-savings)">
-        <span style={muted}>✓ Sent. Coinbase is processing your payout — this card updates when it completes.</span>
+        <div style={{ fontSize: '0.85rem', color: 'var(--color-text)', fontWeight: 600 }}>
+          {received ? '✓ Coinbase received your USDC — selling…' : '✓ Sent on-chain — waiting for Coinbase to receive it…'}
+        </div>
+        {digest && (
+          <a
+            href={`https://suivision.xyz/txblock/${digest}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}
+          >
+            {digest.slice(0, 12)}…{digest.slice(-8)} ↗
+          </a>
+        )}
+        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+          Coinbase will also text or email you updates.
+        </span>
       </Card>
     );
   }
@@ -193,10 +218,13 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
       <Card accent="var(--color-savings)">
         <Row>
           <span style={{ fontSize: '0.875rem', color: 'var(--color-savings)', fontWeight: 600 }}>
-            ✓ ${formatMoneyHuman(tx?.sellAmount ?? '0')} is on its way to your bank.
+            ✓ ${formatMoneyHuman(tx?.sellAmount ?? '0')} is on the way to your bank.
           </span>
           <button onClick={dismiss} style={ghostBtn}>Done</button>
         </Row>
+        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+          Bank transfers (ACH) take 1–3 business days. Coinbase will also text or email you updates.
+        </span>
       </Card>
     );
   }
@@ -221,6 +249,11 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
         </span>
         <button onClick={dismiss} style={ghostBtn}>Dismiss</button>
       </Row>
+      {tx?.status && (
+        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}>
+          Coinbase status: {tx.status}
+        </span>
+      )}
     </Card>
   );
 }
