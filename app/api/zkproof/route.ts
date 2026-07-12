@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
+// Unauthenticated by necessity (login flow) — rate-limit guards the paid,
+// compute-heavy Shinami zkProver against quota-burn.
 export async function POST(req: Request) {
+  const limited = await enforceRateLimit(req, 'zkproof', 20, 60_000);
+  if (limited) return limited;
   try {
     const { jwt, maxEpoch, ephemeralPublicKey, jwtRandomness, salt } =
       await req.json() as {
@@ -19,13 +24,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'SHINAMI_ZKLOGIN_KEY not configured' }, { status: 500 });
     }
 
-    console.log('[zkproof] sending to Shinami:', {
-      maxEpoch,
-      ephemeralPublicKey: ephemeralPublicKey.slice(0, 20) + '…',
-      jwtRandomness: jwtRandomness?.slice(0, 10) + '…',
-      salt: salt?.slice(0, 10) + '…',
-    });
-
     const res = await fetch('https://api.us1.shinami.com/sui/zkprover/v1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
@@ -38,10 +36,9 @@ export async function POST(req: Request) {
     });
 
     const data = await res.json() as { result?: { zkProof: unknown }; error?: { message: string; data?: unknown } };
-    console.log('[zkproof] Shinami HTTP status:', res.status);
-    console.log('[zkproof] Shinami response:', JSON.stringify(data));
-
+    // Do NOT log the response — it contains the zkProof (auth artifact).
     if (data.error) {
+      console.error('[zkproof] Shinami error:', res.status, data.error.message);
       return NextResponse.json({ error: data.error.message, detail: data.error.data }, { status: 400 });
     }
 

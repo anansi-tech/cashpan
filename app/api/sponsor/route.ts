@@ -1,24 +1,28 @@
 import { NextResponse } from 'next/server';
 import { Transaction } from '@mysten/sui/transactions';
 import { SuiJsonRpcClient, JsonRpcHTTPTransport } from '@mysten/sui/jsonRpc';
-import { NETWORK } from '@/lib/sui';
+import { NETWORK, suiNetwork } from '@/lib/sui';
 import { buildDepositTx, buildWalletSendTx } from '@/lib/vault-tx';
+import { getAuthedSub } from '@/lib/session';
+import { getActiveVault } from '@/lib/db/vault-registry';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import { validateSponsorCommands, isProvisioningOnly, normalizeSuiAddress, type SponsorCommand } from '@/lib/sponsor-guard';
 
-// Derive JSON-RPC URL from the GraphQL URL (same QuickNode endpoint, different path).
-// suix_getCoins JSON-RPC is authoritative for coin enumeration; GraphQL address.objects
-// returns empty for some coin types on QuickNode.
 const GRAPHQL_URL = process.env.SUI_GRAPHQL_URL ?? '';
 const RPC_URL = GRAPHQL_URL.replace(/\/graphql\/?$/, '');
 const GRPC_TOKEN = process.env.SUI_GRPC_TOKEN ?? '';
 const AUTH_HEADER = process.env.SUI_GRPC_AUTH_HEADER ?? 'x-token';
+const COIN_TYPE = process.env.COIN_TYPE ?? '';
+const PACKAGE_ID_LATEST = process.env.PACKAGE_ID_LATEST ?? process.env.PACKAGE_ID ?? '';
+
+const ALLOWED_PACKAGES = new Set(
+  [process.env.PACKAGE_ID, process.env.PACKAGE_ID_LATEST].filter(Boolean).map((p) => normalizeSuiAddress(p as string)),
+);
 
 function rpcClient() {
   return new SuiJsonRpcClient({
     network: NETWORK,
-    transport: new JsonRpcHTTPTransport({
-      url: RPC_URL,
-      rpc: { url: RPC_URL, headers: { [AUTH_HEADER]: GRPC_TOKEN } },
-    }),
+    transport: new JsonRpcHTTPTransport({ url: RPC_URL, rpc: { url: RPC_URL, headers: { [AUTH_HEADER]: GRPC_TOKEN } } }),
   });
 }
 
@@ -29,45 +33,69 @@ type WalletSendBody = { action: 'walletSend'; amountBase: string; sender: string
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  const sub = getAuthedSub(req);
+  if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+
+  const limited = await enforceRateLimit(req, 'sponsor', 30, 60_000);
+  if (limited) return limited;
+
   try {
     const body = await req.json() as RegularBody | DepositBody | WalletSendBody;
     const apiKey = process.env.SHINAMI_GAS_STATION_KEY!;
+    const vault = await getActiveVault(sub, suiNetwork());
+    const payout = vault ? normalizeSuiAddress(vault.payoutAddress) : null;
+
+    // Assert the tx sender is the session's own vault wallet. Bypassed only for
+    // create_vault (provisioning), which runs before a vault row exists.
+    const assertSender = (sender: string): NextResponse | null => {
+      if (!vault) return NextResponse.json({ error: 'Vault not found' }, { status: 404 });
+      if (normalizeSuiAddress(sender) !== payout) {
+        return NextResponse.json({ error: 'Sender is not your vault wallet' }, { status: 403 });
+      }
+      return null;
+    };
 
     let tx: Transaction;
 
     if ('action' in body && body.action === 'deposit') {
-      // Server builds deposit PTB — coinWithBalance intent resolved here via suix_getCoins.
-      const { amountBase, sender, vaultId, packageId, coinType } = body;
-      tx = buildDepositTx(BigInt(amountBase), { packageId, coinType, vaultId });
-      tx.setSender(sender);
+      const deny = assertSender(body.sender);
+      if (deny) return deny;
+      // Pin PTB params to the session vault + env — never trust the body's IDs.
+      tx = buildDepositTx(BigInt(body.amountBase), { packageId: PACKAGE_ID_LATEST, coinType: COIN_TYPE, vaultId: vault!.vaultId });
+      tx.setSender(body.sender);
     } else if ('action' in body && body.action === 'walletSend') {
-      // Cash-out step 2: plain wallet → Coinbase deposit address (coinWithBalance).
-      const { amountBase, sender, recipient, coinType } = body;
-      if (!/^0x[0-9a-fA-F]{64}$/.test(recipient)) {
+      const deny = assertSender(body.sender);
+      if (deny) return deny;
+      if (!/^0x[0-9a-fA-F]{64}$/.test(body.recipient)) {
         return NextResponse.json({ error: 'Invalid recipient address' }, { status: 400 });
       }
-      tx = buildWalletSendTx(BigInt(amountBase), recipient, coinType);
-      tx.setSender(sender);
+      tx = buildWalletSendTx(BigInt(body.amountBase), body.recipient, COIN_TYPE);
+      tx.setSender(body.sender);
     } else {
-      // Client serialized a plain object-ref PTB (sweep/topup/send/withdraw).
+      // Client-serialized PTB — whitelist EVERY command before we co-sign.
       const { txSerialized, sender } = body as RegularBody;
       tx = Transaction.from(txSerialized);
+      const commands = tx.getData().commands as unknown as SponsorCommand[];
+      const guard = validateSponsorCommands(commands, ALLOWED_PACKAGES);
+      if (!guard.ok) {
+        console.error('[/api/sponsor] rejected PTB:', guard.reason);
+        return NextResponse.json({ error: 'Transaction not permitted for sponsorship' }, { status: 400 });
+      }
+      // Vault ops require the caller's own vault; create_vault (provisioning) is exempt.
+      if (!isProvisioningOnly(commands)) {
+        const deny = assertSender(sender);
+        if (deny) return deny;
+      }
       tx.setSender(sender);
     }
 
     const kindBytes = await tx.build({ client: rpcClient(), onlyTransactionKind: true });
     const txBase64 = Buffer.from(kindBytes).toString('base64');
-    const sender = body.sender;
 
     const res = await fetch('https://api.us1.shinami.com/sui/gas/v1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'gas_sponsorTransactionBlock',
-        params: [txBase64, sender],
-        id: 1,
-      }),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'gas_sponsorTransactionBlock', params: [txBase64, body.sender], id: 1 }),
     });
 
     const data = await res.json() as {

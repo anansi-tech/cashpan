@@ -20,11 +20,11 @@ export const dynamic = 'force-dynamic';
 export default async function Page() {
   void validateReserveIndex();
   const cookieStore = await cookies();
-  const sub = verifySessionCookie(cookieStore.get('cashpan-sub')?.value);
+  const session = verifySessionCookie(cookieStore.get('cashpan-sub')?.value);
 
-  if (!sub) return <SignIn />;
+  if (!session) return <SignIn />;
 
-  const vault = await getActiveVault(sub, suiNetwork());
+  const vault = await getActiveVault(session.sub, suiNetwork());
 
   // moveCall targets use the latest package in the upgrade chain; event/type
   // identities stay on the original PACKAGE_ID (Sui defining-id semantics).
