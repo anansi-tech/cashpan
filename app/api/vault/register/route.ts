@@ -6,10 +6,14 @@
 
 import { NextResponse } from 'next/server';
 import { registerVault } from '@/lib/db/vault-registry';
+import { findOwnedOwnerCap } from '@/lib/graphql';
 import { getAuthedSub } from '@/lib/session';
 import { suiNetwork } from '@/lib/sui';
+import { normalizeSuiAddress } from '@/lib/sponsor-guard';
 
 export const dynamic = 'force-dynamic';
+
+const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 
 export async function POST(req: Request) {
   // Verify the request comes from the authenticated user
@@ -27,6 +31,21 @@ export async function POST(req: Request) {
 
   if (!vaultId || !ownerCapId || !payoutAddress || !coinType) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  }
+
+  // Ownership check: the payout address must actually own the submitted
+  // OwnerCap on-chain, and it must govern the submitted vault. Blocks binding
+  // a session to a cap/vault the caller doesn't control (mismatched or
+  // fabricated IDs).
+  try {
+    const owned = await findOwnedOwnerCap(payoutAddress, PACKAGE_ID);
+    if (!owned || normalizeSuiAddress(owned.ownerCapId) !== normalizeSuiAddress(ownerCapId) ||
+        normalizeSuiAddress(owned.vaultId) !== normalizeSuiAddress(vaultId)) {
+      return NextResponse.json({ error: 'OwnerCap not owned by this address' }, { status: 403 });
+    }
+  } catch (err) {
+    console.error('[/api/vault/register] ownership check failed:', err);
+    return NextResponse.json({ error: 'Could not verify vault ownership' }, { status: 502 });
   }
 
   try {

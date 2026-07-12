@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { verifyGoogleIdToken } from '@/lib/google-id-token';
 import { sealSession, verifySessionCookie, SESSION_COOKIE, SESSION_TTL_S } from '@/lib/session';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic';
 // client-claimed sub is never trusted (the old {sub} body minted sessions for
 // any account — see CDP finding).
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, 'auth-mint', 20, 60_000);
+  if (limited) return limited;
+
   const { jwt } = await req.json().catch(() => ({})) as { jwt?: string };
   if (!jwt) return NextResponse.json({ error: 'id_token required' }, { status: 401 });
 
