@@ -9,7 +9,7 @@
  *     repeated reads, cache loss, and concurrent reads.
  */
 
-import { replayPrincipal, getReplayedPrincipal, type ReplayEvent, type PageFetcher } from '../lib/principal-replay.js';
+import { replayPrincipal, getReplayedPrincipal, type ReplayEvent, type PageFetcher, type CheckpointStore, type CheckpointRecord } from '../lib/principal-replay.js';
 
 const VAULT_A = '0xaaa';
 const VAULT_B = '0xbbb';
@@ -50,6 +50,19 @@ function makeStream(pageSize = 50) {
     };
   };
   return { events, fetchPage, callCount: () => calls };
+}
+
+const noopStore: CheckpointStore = { load: async () => null, save: async () => {} };
+
+/** In-memory checkpoint store standing in for Mongo. */
+function makeStore(initial?: CheckpointRecord) {
+  let row: CheckpointRecord | null = initial ?? null;
+  let saves = 0;
+  const store: CheckpointStore = {
+    load: async () => row,
+    save: async (cp) => { row = { ...cp, updatedAt: new Date() }; saves++; },
+  };
+  return { store, row: () => row, saves: () => saves };
 }
 
 function resetCache() {
@@ -153,20 +166,20 @@ describe('getReplayedPrincipal (derived on-read)', () => {
 
     for (const [direction, amount] of rebalances) {
       stream.events.push(ev(VAULT_A, direction, amount));
-      const got = await getReplayedPrincipal(VAULT_A, stream.fetchPage);
+      const got = await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore);
       const fresh = replayPrincipal(forVault(stream.events, VAULT_A)).principal;
       expect(got).toBe(fresh); // cached incremental ≡ full replay, at every step
     }
 
-    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage)).toBe(20_090_000n);
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore)).toBe(20_090_000n);
   });
 
   test('repeated reads with no new events never re-apply (idempotent)', async () => {
     const stream = makeStream();
     stream.events.push(ev(VAULT_A, 0, 1_000_000n));
-    const first = await getReplayedPrincipal(VAULT_A, stream.fetchPage);
+    const first = await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore);
     for (let i = 0; i < 5; i++) {
-      expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage)).toBe(first);
+      expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore)).toBe(first);
     }
     expect(first).toBe(1_000_000n);
   });
@@ -179,24 +192,24 @@ describe('getReplayedPrincipal (derived on-read)', () => {
       ev(VAULT_A, 1, 250_000n),
       ev(VAULT_B, 1, 9_500_000n), // clamps B to 0
     );
-    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage)).toBe(750_000n);
-    expect(await getReplayedPrincipal(VAULT_B, stream.fetchPage)).toBe(0n);
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore)).toBe(750_000n);
+    expect(await getReplayedPrincipal(VAULT_B, stream.fetchPage, noopStore)).toBe(0n);
   });
 
   test('pagination: many events across small pages fold exactly once', async () => {
     const stream = makeStream(3); // force multiple pages
     for (let i = 0; i < 10; i++) stream.events.push(ev(VAULT_A, 0, 1n));
-    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage)).toBe(10n);
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore)).toBe(10n);
     // second read: nothing new, value unchanged
-    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage)).toBe(10n);
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore)).toBe(10n);
   });
 
   test('cache loss is harmless: full replay rebuilds the same value', async () => {
     const stream = makeStream();
     stream.events.push(ev(VAULT_A, 0, 5_000_000n), ev(VAULT_A, 1, 1_000_000n));
-    const before = await getReplayedPrincipal(VAULT_A, stream.fetchPage);
+    const before = await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore);
     resetCache(); // simulate cold serverless instance / corrupted checkpoint
-    const after = await getReplayedPrincipal(VAULT_A, stream.fetchPage);
+    const after = await getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore);
     expect(after).toBe(before);
     expect(after).toBe(4_000_000n);
   });
@@ -205,7 +218,7 @@ describe('getReplayedPrincipal (derived on-read)', () => {
     const stream = makeStream();
     stream.events.push(ev(VAULT_A, 0, 2_000_000n));
     const results = await Promise.all(
-      Array.from({ length: 8 }, () => getReplayedPrincipal(VAULT_A, stream.fetchPage)),
+      Array.from({ length: 8 }, () => getReplayedPrincipal(VAULT_A, stream.fetchPage, noopStore)),
     );
     expect(results.every((r) => r === 2_000_000n)).toBe(true);
     expect(stream.callCount()).toBe(1); // one shared refresh, not eight
@@ -214,6 +227,74 @@ describe('getReplayedPrincipal (derived on-read)', () => {
   test('unknown vault (no events) reads as zero principal', async () => {
     const stream = makeStream();
     stream.events.push(ev(VAULT_A, 0, 1_000_000n));
-    expect(await getReplayedPrincipal('0xnobody', stream.fetchPage)).toBe(0n);
+    expect(await getReplayedPrincipal('0xnobody', stream.fetchPage, noopStore)).toBe(0n);
+  });
+});
+
+// ─── 3. Mongo checkpoint layer (in-memory store stand-in) ─────────────────────
+
+describe('checkpoint store', () => {
+  const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 3600 * 1000);
+
+  test('genesis replay writes a checkpoint snapshot of its own output', async () => {
+    const stream = makeStream();
+    stream.events.push(ev(VAULT_A, 0, 7_000_000n), ev(VAULT_A, 1, 2_000_000n));
+    const cp = makeStore();
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, cp.store)).toBe(5_000_000n);
+    expect(cp.row()).toMatchObject({ vaultId: VAULT_A, principal: '5000000', eventCount: 2, cursor: '1' });
+  });
+
+  test('cold start seeds from a fresh checkpoint and folds ONLY post-cursor events', async () => {
+    const stream = makeStream();
+    stream.events.push(ev(VAULT_A, 0, 7_000_000n), ev(VAULT_A, 1, 2_000_000n)); // covered by checkpoint
+    stream.events.push(ev(VAULT_A, 0, 4_000_000n));                              // new since checkpoint
+    const cp = makeStore({ vaultId: VAULT_A, cursor: '1', principal: '5000000', eventCount: 2, updatedAt: new Date() });
+
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, cp.store)).toBe(9_000_000n);
+    // checkpoint + remainder ≡ genesis replay
+    expect(replayPrincipal(forVault(stream.events, VAULT_A)).principal).toBe(9_000_000n);
+    expect(cp.row()).toMatchObject({ principal: '9000000', eventCount: 3, cursor: '2' });
+  });
+
+  test('fresh checkpoint is TRUSTED as-is, even if wrong (documented rule)', async () => {
+    const stream = makeStream();
+    stream.events.push(ev(VAULT_A, 0, 7_000_000n)); // genesis truth would be 7.00
+    const cp = makeStore({ vaultId: VAULT_A, cursor: '0', principal: '999', eventCount: 1, updatedAt: new Date() });
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, cp.store)).toBe(999n);
+  });
+
+  test('stale checkpoint (>24h) triggers full replay and is OVERWRITTEN — the periodic verify', async () => {
+    const stream = makeStream();
+    stream.events.push(ev(VAULT_A, 0, 7_000_000n), ev(VAULT_A, 1, 2_000_000n));
+    // corrupt AND stale: the verify corrects it
+    const cp = makeStore({ vaultId: VAULT_A, cursor: '0', principal: '999', eventCount: 1, updatedAt: daysAgo(2) });
+
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, cp.store)).toBe(5_000_000n);
+    expect(cp.row()).toMatchObject({ principal: '5000000', eventCount: 2 });
+    expect(cp.saves()).toBe(1);
+  });
+
+  test('store failures are non-fatal: replay still answers from genesis', async () => {
+    const stream = makeStream();
+    stream.events.push(ev(VAULT_A, 0, 3_000_000n));
+    const broken: CheckpointStore = {
+      load: async () => { throw new Error('mongo down'); },
+      save: async () => { throw new Error('mongo down'); },
+    };
+    expect(await getReplayedPrincipal(VAULT_A, stream.fetchPage, broken)).toBe(3_000_000n);
+  });
+
+  test('warm instance never re-reads the checkpoint store', async () => {
+    const stream = makeStream();
+    stream.events.push(ev(VAULT_A, 0, 1_000_000n));
+    let loads = 0;
+    const counting: CheckpointStore = {
+      load: async () => { loads++; return null; },
+      save: async () => {},
+    };
+    await getReplayedPrincipal(VAULT_A, stream.fetchPage, counting);
+    await getReplayedPrincipal(VAULT_A, stream.fetchPage, counting);
+    await getReplayedPrincipal(VAULT_A, stream.fetchPage, counting);
+    expect(loads).toBe(1); // memory layer answers warm reads
   });
 });
