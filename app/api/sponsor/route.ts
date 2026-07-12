@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  const limited = enforceRateLimit(req, 'sponsor', 30, 60_000);
+  const limited = await enforceRateLimit(req, 'sponsor', 30, 60_000);
   if (limited) return limited;
 
   try {

@@ -1,35 +1,40 @@
 /**
- * In-memory sliding-window rate limiter. Per-instance (advisory on serverless),
- * but must bound a single abusive instance correctly.
+ * Rate limiter. Async interface (memory fallback or global Upstash backend).
+ * Tests exercise the in-memory backend (no KV env in jest → memory selected).
  */
 
-import { rateLimiter, clientKey, enforceRateLimit } from '../lib/rate-limit.js';
+import { rateLimiter, clientKey, enforceRateLimit, isGlobalRateLimit } from '../lib/rate-limit.js';
 
 const req = (ip: string) => new Request('http://x/api', { headers: { 'x-forwarded-for': `${ip}, 10.0.0.1` } });
 
-describe('rateLimiter', () => {
-  test('allows up to the limit, then blocks', () => {
+describe('backend selection', () => {
+  test('no KV env → memory (per-instance) backend', () => {
+    expect(isGlobalRateLimit()).toBe(false);
+  });
+});
+
+describe('rateLimiter (async)', () => {
+  test('allows up to the limit, then blocks', async () => {
     const key = `t1:${Math.random()}`;
-    for (let i = 0; i < 5; i++) expect(rateLimiter.check(key, 5, 60_000).ok).toBe(true);
-    const blocked = rateLimiter.check(key, 5, 60_000);
+    for (let i = 0; i < 5; i++) expect((await rateLimiter.check(key, 5, 60_000)).ok).toBe(true);
+    const blocked = await rateLimiter.check(key, 5, 60_000);
     expect(blocked.ok).toBe(false);
     expect(blocked.retryAfterS).toBeGreaterThan(0);
   });
 
-  test('separate keys are independent', () => {
+  test('separate keys are independent', async () => {
     const a = `t2a:${Math.random()}`, b = `t2b:${Math.random()}`;
-    for (let i = 0; i < 5; i++) rateLimiter.check(a, 5, 60_000);
-    expect(rateLimiter.check(a, 5, 60_000).ok).toBe(false);
-    expect(rateLimiter.check(b, 5, 60_000).ok).toBe(true);
+    for (let i = 0; i < 5; i++) await rateLimiter.check(a, 5, 60_000);
+    expect((await rateLimiter.check(a, 5, 60_000)).ok).toBe(false);
+    expect((await rateLimiter.check(b, 5, 60_000)).ok).toBe(true);
   });
 
-  test('window slides — old hits expire', () => {
+  test('window slides — old hits expire', async () => {
     const key = `t3:${Math.random()}`;
-    for (let i = 0; i < 3; i++) expect(rateLimiter.check(key, 3, 30).ok).toBe(true);
-    expect(rateLimiter.check(key, 3, 30).ok).toBe(false);
-    return new Promise((r) => setTimeout(r, 45)).then(() => {
-      expect(rateLimiter.check(key, 3, 30).ok).toBe(true); // window passed
-    });
+    for (let i = 0; i < 3; i++) expect((await rateLimiter.check(key, 3, 30)).ok).toBe(true);
+    expect((await rateLimiter.check(key, 3, 30)).ok).toBe(false);
+    await new Promise((r) => setTimeout(r, 45));
+    expect((await rateLimiter.check(key, 3, 30)).ok).toBe(true);
   });
 });
 
@@ -43,10 +48,10 @@ describe('clientKey', () => {
 });
 
 describe('enforceRateLimit', () => {
-  test('returns null while under limit, a 429 with Retry-After when over', () => {
+  test('resolves null while under limit, a 429 with Retry-After when over', async () => {
     const ip = `ip-${Math.random()}`;
-    for (let i = 0; i < 3; i++) expect(enforceRateLimit(req(ip), 'b', 3, 60_000)).toBeNull();
-    const res = enforceRateLimit(req(ip), 'b', 3, 60_000);
+    for (let i = 0; i < 3; i++) expect(await enforceRateLimit(req(ip), 'b', 3, 60_000)).toBeNull();
+    const res = await enforceRateLimit(req(ip), 'b', 3, 60_000);
     expect(res).not.toBeNull();
     expect(res!.status).toBe(429);
     expect(Number(res!.headers.get('Retry-After'))).toBeGreaterThan(0);

@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 // Unauthenticated by necessity (login flow) — rate-limit guards the paid,
 // compute-heavy Shinami zkProver against quota-burn.
 export async function POST(req: Request) {
-  const limited = enforceRateLimit(req, 'zkproof', 20, 60_000);
+  const limited = await enforceRateLimit(req, 'zkproof', 20, 60_000);
   if (limited) return limited;
   try {
     const { jwt, maxEpoch, ephemeralPublicKey, jwtRandomness, salt } =

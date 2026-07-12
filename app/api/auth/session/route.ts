@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // client-claimed sub is never trusted (the old {sub} body minted sessions for
 // any account — see CDP finding).
 export async function POST(req: Request) {
-  const limited = enforceRateLimit(req, 'auth-mint', 20, 60_000);
+  const limited = await enforceRateLimit(req, 'auth-mint', 20, 60_000);
   if (limited) return limited;
 
   const { jwt } = await req.json().catch(() => ({})) as { jwt?: string };

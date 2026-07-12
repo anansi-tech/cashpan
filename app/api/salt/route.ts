@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 // Unauthenticated by necessity (part of establishing the session) — rate-limit
 // is the only guard against Shinami zkWallet quota-burn.
 export async function POST(req: Request) {
-  const limited = enforceRateLimit(req, 'salt', 20, 60_000);
+  const limited = await enforceRateLimit(req, 'salt', 20, 60_000);
   if (limited) return limited;
   try {
     const { jwt } = await req.json() as { jwt: string };
