@@ -7,6 +7,7 @@ import { getAuthedSub } from '@/lib/session';
 import { getActiveVault } from '@/lib/db/vault-registry';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { validateSponsorCommands, isProvisioningOnly, normalizeSuiAddress, type SponsorCommand } from '@/lib/sponsor-guard';
+import { upstreamFetch, UpstreamError } from '@/lib/upstream-fetch';
 
 const GRAPHQL_URL = process.env.SUI_GRAPHQL_URL ?? '';
 const RPC_URL = GRAPHQL_URL.replace(/\/graphql\/?$/, '');
@@ -92,16 +93,14 @@ export async function POST(req: Request) {
     const kindBytes = await tx.build({ client: rpcClient(), onlyTransactionKind: true });
     const txBase64 = Buffer.from(kindBytes).toString('base64');
 
-    const res = await fetch('https://api.us1.shinami.com/sui/gas/v1', {
+    const { data } = await upstreamFetch<{
+      result?: { txBytes: string; signature: string };
+      error?: { message: string; data?: { details?: string } };
+    }>('sponsor', 'https://api.us1.shinami.com/sui/gas/v1', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'gas_sponsorTransactionBlock', params: [txBase64, body.sender], id: 1 }),
     });
-
-    const data = await res.json() as {
-      result?: { txBytes: string; signature: string };
-      error?: { message: string; data?: { details?: string } };
-    };
 
     if (data.error) {
       const details = data.error.data?.details;
@@ -118,6 +117,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json(data.result);
   } catch (err) {
+    if (err instanceof UpstreamError) {
+      console.error('[/api/sponsor] upstream:', err.message);
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[/api/sponsor] error:', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

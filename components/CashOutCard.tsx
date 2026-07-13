@@ -10,7 +10,8 @@ import { formatMoney, formatMoneyHuman } from '@/lib/format';
 import { clearCashOut, cashOutStartedAt, setCashOutSent, getCashOutSentDigest } from '@/lib/offramp';
 import { classifyOfframpPoll } from '@/lib/offramp-match';
 
-const NO_ORDER_GIVE_UP_MS = 10 * 60 * 1000; // PRE-ORDER only: stop waiting if no order ever appears
+const NO_ORDER_GIVE_UP_MS = 5 * 60 * 1000;  // PRE-ORDER absolute cap (backstop, esp. mobile redirect)
+const RETURN_GRACE_MS = 75 * 1000;          // after the user RETURNS from the widget with no order, conclude fast
 // Backoff stretches to 60s — post-send polling runs until a TERMINAL status,
 // however long the sell takes. Never freeze the card mid-flight.
 const POLL_STEPS_MS = [3_000, 5_000, 8_000, 13_000, 21_000, 30_000, 45_000, 60_000];
@@ -56,6 +57,7 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   const pollIdx = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollInFlight = useRef(false);
+  const returnedAt = useRef(0); // when the user came back from the widget (0 = not yet)
   const phaseRef = useRef<Phase>('waiting');
   phaseRef.current = phase;
 
@@ -93,15 +95,20 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     } catch { /* transient — keep polling */ }
     finally { pollInFlight.current = false; }
 
-    // PRE-ORDER give-up only: if no order has appeared within ~10 minutes of
-    // the widget opening (and nothing was sent), stop quietly — the staged
-    // USDC sits at the wallet and the arrival proposal recovers it.
-    // POST-SEND polling never gives up: it runs until a terminal status.
-    if (phaseRef.current === 'waiting' && !getCashOutSentDigest() && Date.now() - startedAt > NO_ORDER_GIVE_UP_MS) {
-      clearCashOut();
-      setPhase('gone');
-      refresh();
-      return;
+    // PRE-ORDER give-up: conclude quietly when no order appeared and nothing
+    // was sent — the staged USDC sits at the wallet and the arrival proposal
+    // recovers it. Fires on EITHER the absolute cap OR, once the user has
+    // RETURNED from the widget without ordering, a short grace (so abandonment
+    // recovers in ~75s, not minutes). POST-SEND polling never gives up.
+    if (phaseRef.current === 'waiting' && !getCashOutSentDigest()) {
+      const grace = returnedAt.current > 0 && Date.now() - returnedAt.current > RETURN_GRACE_MS;
+      const capped = Date.now() - startedAt > NO_ORDER_GIVE_UP_MS;
+      if (grace || capped) {
+        clearCashOut();
+        setPhase('gone');
+        refresh();
+        return;
+      }
     }
 
     const delay = POLL_STEPS_MS[Math.min(pollIdx.current, POLL_STEPS_MS.length - 1)];
@@ -115,6 +122,11 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     // a fresh poll instead of waiting for a delayed background timeout.
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;
+      // Coming back to the tab with the widget still pre-order = the user
+      // returned (closed the popup / came back). Arm the short give-up grace.
+      if (phaseRef.current === 'waiting' && !getCashOutSentDigest() && returnedAt.current === 0) {
+        returnedAt.current = Date.now();
+      }
       if (timerRef.current) clearTimeout(timerRef.current);
       pollIdx.current = 0;
       void poll();

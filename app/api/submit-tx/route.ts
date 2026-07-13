@@ -6,8 +6,16 @@ import { getActiveVault } from '@/lib/db/vault-registry';
 import { suiNetwork } from '@/lib/sui';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { normalizeSuiAddress } from '@/lib/sponsor-guard';
+import { UpstreamError } from '@/lib/upstream-fetch';
 
 export const dynamic = 'force-dynamic';
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new UpstreamError(`${label}: timed out after ${ms}ms`)), ms)),
+  ]);
+}
 
 export async function POST(req: Request) {
   const sub = getAuthedSub(req);
@@ -33,7 +41,12 @@ export async function POST(req: Request) {
     }
 
     // SDK returns a discriminated union: {$kind:'Transaction',...} or {$kind:'FailedTransaction',...}
-    const result = await graphqlClient().executeTransaction({ transaction, signatures, include: { objectTypes: true } });
+    // Bound the SDK call — a hung upstream must fail fast (~20s), not hang the request.
+    const result = await withTimeout(
+      graphqlClient().executeTransaction({ transaction, signatures, include: { objectTypes: true } }),
+      20_000,
+      'submit-tx execute',
+    );
 
     const txData = result.Transaction ?? result.FailedTransaction;
     const digest = txData?.digest ?? '';
@@ -53,6 +66,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ digest, objectTypes: result.Transaction?.objectTypes ?? {} });
   } catch (err) {
+    if (err instanceof UpstreamError) {
+      console.error('[/api/submit-tx] upstream:', err.message);
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[/api/submit-tx] error:', err);
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

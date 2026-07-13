@@ -30,15 +30,21 @@ export async function cdpFetch(method: 'GET' | 'POST', path: string, body?: unkn
     requestHost: CDP_HOST,
     requestPath: signPath,
   });
-  return fetch(`https://${CDP_HOST}${path}`, {
-    method,
-    cache: 'no-store',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${jwt}`,
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  // Bound the CDP call so a hung upstream can't hang the request (callers
+  // already parse defensively with .json().catch()).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  try {
+    return await fetch(`https://${CDP_HOST}${path}`, {
+      method,
+      cache: 'no-store',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ─── Sell availability by US subdivision (24h cache) ─────────────────────────

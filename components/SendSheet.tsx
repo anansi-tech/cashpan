@@ -139,16 +139,24 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   }, []);
 
   // Cash-out v2, step 1 (staging): the widget gates on the WALLET balance, so
-  // funds must move vault → wallet first. Ask the amount in-app, confirm via
-  // the standard pipeline, THEN open the widget — which now shows $X available.
+  // funds must move vault → wallet first. Stage EXACTLY whole cents — sub-cent
+  // dust would make the widget's Max (e.g. 2.00) disagree with what actually
+  // landed (1.99). Residual dust stays in Spend. String-truncate to floor (no
+  // float math: parseFloat("1.99")*100 === 198.9999).
+  const floorToCents = (h: string): string => {
+    const [i, f = ''] = String(h).replace(/,/g, '').split('.');
+    return `${i || '0'}.${(f + '00').slice(0, 2)}`;
+  };
+
   const handleCashOutReview = async () => {
     setCashOutState('preparing');
     setCashOutError('');
     try {
+      const amount = floorToCents(cashOutMax ? spendHuman : cashOutAmount);
       const res = await fetch('/api/propose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'withdrawToMe', ...(cashOutMax ? { max: true } : { amount: cashOutAmount }) }),
+        body: JSON.stringify({ action: 'withdrawToMe', amount }),
       });
       const data = await res.json().catch(() => ({})) as { proposal?: Proposal; error?: string };
       if (!res.ok || !data.proposal) throw new Error(data.error ?? 'Could not prepare the cash-out');
@@ -160,11 +168,15 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
     }
   };
 
-  // Step 1 signed → open the Coinbase sell widget (the amount authority).
+  // Step 1 signed → open the Coinbase sell widget with the EXACT staged amount
+  // (the proposal's own value, floored to cents = what's now in the wallet).
   const handleStaged = async () => {
     setCashOutState('opening');
     try {
-      await openCashOut(cashOutMax ? spendHuman.replace(/,/g, '') : cashOutAmount);
+      const staged = cashOutProposal && 'amountSui' in cashOutProposal
+        ? floorToCents((cashOutProposal as { amountSui: string }).amountSui)
+        : undefined;
+      await openCashOut(staged);
       onClose(); // CashOutCard takes over in the proposal slot
     } catch (e) {
       // Coinbase's rejection reason verbatim — they know eligibility, we don't.

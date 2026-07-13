@@ -71,9 +71,12 @@ export async function POST(req: Request) {
     // desktop popup, replace into / for the mobile redirect.
     const redirectUrl = origin ? `${origin}/onramp/callback` : undefined;
 
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
     const res = await fetch(`https://${CDP_HOST}${CDP_PATH}`, {
       method: 'POST',
       cache: 'no-store',
+      signal: ctrl.signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({
         destinationAddress: vault.payoutAddress, // server-derived, never client-supplied
@@ -82,7 +85,7 @@ export async function POST(req: Request) {
         ...(clientIp ? { clientIp } : {}),
         ...(redirectUrl ? { redirectUrl } : {}),
       }),
-    });
+    }).finally(() => clearTimeout(timer));
 
     const data = await res.json().catch(() => ({})) as {
       session?: { onrampUrl?: string };

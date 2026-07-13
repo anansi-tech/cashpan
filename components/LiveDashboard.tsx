@@ -154,7 +154,7 @@ function DashSkeleton() {
 }
 
 export function LiveDashboard() {
-  const { balances, earnings, isStale, proposals, settings } = useVaultData();
+  const { balances, earnings, isStale, proposals, settings, walletBalance } = useVaultData();
   const hints = pendingSuggestionPockets(proposals, settings.band);
 
   // No data yet (fresh session, first poll pending): skeletons — never a
@@ -171,19 +171,29 @@ export function LiveDashboard() {
   const aprLabel = aprBps > 0 ? `earning ${(aprBps / 100).toFixed(1)}% APR` : undefined;
   const earnedInline = accrued > 0 ? `+$${floorToDecimals(accrued, 4)}` : undefined;
 
+  const walletBase = Number(walletBalance ?? '0');
+
   if (Number(balances.liquid) + Number(balances.savingsValue) === 0) {
+    // Vault empty but money already in the wallet: show the arrival state now,
+    // not the "get started" empty state (the add-to-cashpan proposal below
+    // provides the one-tap Add; this just tells the truth immediately).
+    const arrived = walletBase > 0;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2.5rem 1rem', textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem' }}>💸</div>
-        <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '1rem' }}>Add money to get started</div>
+        <div style={{ fontSize: '2rem' }}>{arrived ? '✅' : '💸'}</div>
+        <div style={{ color: 'var(--color-text)', fontWeight: 600, fontSize: '1rem' }}>
+          {arrived ? `$${formatMoney(walletBase)} is in your wallet` : 'Add money to get started'}
+        </div>
         <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', lineHeight: 1.6, maxWidth: '22rem' }}>
-          Debit card, bank, or Apple Pay — or receive crypto to your address. Arrives in minutes.
+          {arrived
+            ? 'Add it to CashPan to start spending and earning.'
+            : 'Debit card, bank, or Apple Pay — or receive crypto to your address. Arrives in minutes.'}
         </div>
         <button
           onClick={() => dispatch('cashpan:show-receive')}
           style={{ background: 'var(--color-savings)', color: '#0a0f1e', border: 'none', borderRadius: '0.625rem', padding: '0.75rem 1.5rem', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
         >
-          Add money →
+          {arrived ? 'Add to CashPan →' : 'Add money →'}
         </button>
       </div>
     );
