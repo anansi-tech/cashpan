@@ -97,6 +97,7 @@ The agent runs a `sense → decide → act` loop with no LLM on the path:
 ### Key invariants
 
 - **Ledger completeness**: any Move function that changes a balance MUST emit an event with actual amounts (and `savings_value_after` when savings is touched). The entire off-chain layer derives from event-stream completeness — an unemitted move silently corrupts derived principal and activity history (`redeem_position` did exactly this pre-upgrade). New/changed entry functions require an emit + the Move event-emission test updated. Defense in depth: the principal fold clamps `basis ≤ savings_value_after` per event (`lib/principal-replay.ts`).
+- **Sub-cent sweep flooring is expected**: a sweep's Save pocket lands a sub-cent below the swept amount (cToken mint floors), so ConfirmCard shows the sweep Save after-value with a `~` prefix. This self-heals via accrual — do NOT "fix" it further. Topup/spend rows are exact.
 - The on-chain caps are the only safety boundary. A compromised agent key cannot exceed `per_tx_cap` per transaction or `daily_cap` per epoch, and cannot withdraw to any address outside the vault.
 - `decide.ts` is a pure function — unit-tested in `tests/decide.test.ts`, zero I/O, no model imports anywhere on the loop path.
 - `vault.venue_id` is set at creation and immutable. The vault cannot be redirected to a different venue after deployment.
