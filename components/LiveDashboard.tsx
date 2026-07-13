@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useVaultData } from './VaultDataProvider';
 import { formatMoney, floorToDecimals } from '@/lib/format';
 import { pendingSuggestionPockets } from './ProposalBanner';
@@ -157,6 +158,14 @@ export function LiveDashboard() {
   const { balances, earnings, isStale, proposals, settings, walletBalance } = useVaultData();
   const hints = pendingSuggestionPockets(proposals, settings.band);
 
+  // Debounce the "get started" empty state: a single zero read mid-drain
+  // (position destroyed, liquid not yet refreshed) must not flash onboarding.
+  // Require the PREVIOUS read to also be fully-zero before showing it.
+  const walletBase = Number(walletBalance ?? '0');
+  const bothZeroNow = !!balances && Number(balances.liquid) + Number(balances.savingsValue) === 0 && walletBase === 0;
+  const prevBothZero = useRef(false);
+  useEffect(() => { prevBothZero.current = bothZeroNow; }, [bothZeroNow]);
+
   // No data yet (fresh session, first poll pending): skeletons — never a
   // zeroed dashboard or a premature "add money" empty state.
   if (!balances) return <DashSkeleton />;
@@ -171,13 +180,13 @@ export function LiveDashboard() {
   const aprLabel = aprBps > 0 ? `earning ${(aprBps / 100).toFixed(1)}% APR` : undefined;
   const earnedInline = accrued > 0 ? `+$${floorToDecimals(accrued, 4)}` : undefined;
 
-  const walletBase = Number(walletBalance ?? '0');
+  const vaultEmpty = Number(balances.liquid) + Number(balances.savingsValue) === 0;
+  const arrived = vaultEmpty && walletBase > 0;
+  // Show onboarding only when the vault AND wallet are zero on TWO consecutive
+  // reads; a single mid-drain zero falls through to the (truthful) $0 dashboard.
+  const showGetStarted = vaultEmpty && walletBase === 0 && prevBothZero.current;
 
-  if (Number(balances.liquid) + Number(balances.savingsValue) === 0) {
-    // Vault empty but money already in the wallet: show the arrival state now,
-    // not the "get started" empty state (the add-to-cashpan proposal below
-    // provides the one-tap Add; this just tells the truth immediately).
-    const arrived = walletBase > 0;
+  if (arrived || showGetStarted) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2.5rem 1rem', textAlign: 'center' }}>
         <div style={{ fontSize: '2rem' }}>{arrived ? '✅' : '💸'}</div>

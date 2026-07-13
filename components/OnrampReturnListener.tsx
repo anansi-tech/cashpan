@@ -7,8 +7,8 @@ import { isCashOutActive } from '@/lib/offramp';
 
 /**
  * Handles the user returning from Coinbase Onramp. Both paths converge on the
- * same outcome: the quiet "Waiting for Coinbase…" line shows in the proposal
- * slot until the arrival proposal replaces it (ProposalBanner clears the flag).
+ * same outcome: the OnrampProgress stepper in the proposal slot advances
+ * (② on the way → ③ Add) as the arrival proposal lands.
  *
  * - Desktop: /onramp/callback (popup) posts {type:'onramp'} and closes.
  * - Mobile: the redirect lands on /?onramp_result=… (param stripped after read).
