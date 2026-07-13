@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import type { CSSProperties } from 'react';
-import type { BrainProposal } from '@/lib/brain';
+import type { BrainProposal, AddToCashPanProposal } from '@/lib/brain';
 import { humanToBase } from '@/lib/coin-config';
 import { buildSweepFromBrain, buildTopupFromBrain, type VaultTxContext } from '@/lib/vault-tx';
 import { executeTransaction, executeDepositTransaction } from '@/lib/execute-zklogin';
@@ -11,6 +11,7 @@ import { formatMoneyHuman } from '@/lib/format';
 import { isOnrampPending, clearOnrampPending } from '@/lib/onramp';
 import { isCashOutActive, cashOutStartedAt } from '@/lib/offramp';
 import { CashOutCard } from './CashOutCard';
+import { OnrampProgress } from './TransferProgress';
 
 const COIN_SYM = process.env.NEXT_PUBLIC_COIN_SYMBOL ?? 'USD';
 
@@ -61,19 +62,6 @@ export function pendingSuggestionPockets(proposals: BrainProposal[], bandHuman: 
   };
 }
 
-// Quiet post-onramp line. Lives in the proposal slot so the arrival proposal
-// literally REPLACES it — one place, one voice.
-function WaitingForCoinbase({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <div style={{ ...cardStyle, flexDirection: 'row', alignItems: 'center', borderLeftColor: 'rgba(148,163,184,0.5)', marginBottom: '0.875rem' }}>
-      <span style={{ flex: 1, color: 'var(--color-muted)', fontSize: '0.82rem' }}>
-        ⏳ Waiting for Coinbase… card payments take a few minutes.
-      </span>
-      <button onClick={onDismiss} style={notNowBtn}>Dismiss</button>
-    </div>
-  );
-}
-
 /**
  * The single announcer for everything proactive — wallet arrivals included.
  * Strictly ONE visible card at a time: computeProposals orders arrival-add
@@ -103,16 +91,24 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   if (isCashOutActive()) return <CashOutCard key={cashOutStartedAt()} vaultCtx={vaultCtx} />;
 
   const visible = proposals.filter((p) => !isDismissed(p, settings.band));
-  const current = visible[0];
 
-  // Money arrived — the onramp wait is over.
-  if (current?.type === 'add-to-cashpan' && isOnrampPending()) clearOnrampPending();
-
-  if (!current) {
-    return isOnrampPending()
-      ? <WaitingForCoinbase onDismiss={() => { clearOnrampPending(); bump((n) => n + 1); }} />
-      : null;
+  // Onramp handoff owns the slot while pending: ONE stepper advancing
+  // ① Paid → ② On the way → ③ Add. The arrival proposal (when it lands)
+  // drives step ③; the pending flag clears only when the user acts.
+  if (isOnrampPending()) {
+    const arrival = visible.find((p) => p.type === 'add-to-cashpan') as AddToCashPanProposal | undefined;
+    return (
+      <OnrampProgress
+        arrival={arrival}
+        vaultCtx={vaultCtx}
+        onDone={() => { clearOnrampPending(); clearProposalDismissals(); bump((n) => n + 1); refresh(); }}
+        onDismiss={() => { clearOnrampPending(); bump((n) => n + 1); }}
+      />
+    );
   }
+
+  const current = visible[0];
+  if (!current) return null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.875rem' }}>

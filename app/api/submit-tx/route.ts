@@ -17,6 +17,33 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ]);
 }
 
+const RETRY_DELAYS_MS = [300, 800]; // mirror gqlPost: 2 retries
+
+// Resubmitting identical signed bytes is idempotent on Sui (same digest → same
+// effects), so 429/timeout/network errors are safe to retry. Move failures come
+// back as a returned {$kind:'FailedTransaction'} (not a throw) and are NOT retried.
+async function executeWithRetry(transaction: Uint8Array, signatures: string[]) {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) {
+      const m = String((lastErr as Error)?.message ?? '').match(/retry-after[:\s]+(\d+)/i);
+      const retryAfterMs = m ? Number(m[1]) * 1000 : 0;
+      await new Promise((r) => setTimeout(r, Math.max(RETRY_DELAYS_MS[attempt - 1], retryAfterMs)));
+    }
+    try {
+      return await withTimeout(
+        graphqlClient().executeTransaction({ transaction, signatures, include: { objectTypes: true } }),
+        20_000,
+        'submit-tx execute',
+      );
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  const msg = lastErr instanceof Error ? lastErr.message : 'submit failed after retries';
+  throw new UpstreamError(`submit-tx: ${msg}`);
+}
+
 export async function POST(req: Request) {
   const sub = getAuthedSub(req);
   if (!sub) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -41,12 +68,8 @@ export async function POST(req: Request) {
     }
 
     // SDK returns a discriminated union: {$kind:'Transaction',...} or {$kind:'FailedTransaction',...}
-    // Bound the SDK call — a hung upstream must fail fast (~20s), not hang the request.
-    const result = await withTimeout(
-      graphqlClient().executeTransaction({ transaction, signatures, include: { objectTypes: true } }),
-      20_000,
-      'submit-tx execute',
-    );
+    // Retries on 429/timeout/network (idempotent resubmit); fails to a clean 502.
+    const result = await executeWithRetry(transaction, signatures);
 
     const txData = result.Transaction ?? result.FailedTransaction;
     const digest = txData?.digest ?? '';

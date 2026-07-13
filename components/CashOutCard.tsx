@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { useVaultData } from './VaultDataProvider';
 import type { VaultTxContext } from '@/lib/vault-tx';
 import { executeWalletSendTransaction } from '@/lib/execute-zklogin';
@@ -9,6 +8,7 @@ import { humanToBase } from '@/lib/coin-config';
 import { formatMoney, formatMoneyHuman } from '@/lib/format';
 import { clearCashOut, cashOutStartedAt, setCashOutSent, getCashOutSentDigest } from '@/lib/offramp';
 import { classifyOfframpPoll } from '@/lib/offramp-match';
+import { StepCard, StepList, stepGhostBtn, stepPrimaryBtn, type Step } from './TransferProgress';
 
 const NO_ORDER_GIVE_UP_MS = 5 * 60 * 1000;  // PRE-ORDER absolute cap (backstop, esp. mobile redirect)
 const RETURN_GRACE_MS = 75 * 1000;          // after the user RETURNS from the widget with no order, conclude fast
@@ -171,169 +171,139 @@ export function CashOutCard({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
   if (phase === 'gone') return null;
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── One stepper card — advances in place, never remounts between stages ─────
+  const STEP_LABELS = [
+    'Place your order at Coinbase',
+    'Waiting for your order',
+    'Your turn — send to Coinbase',
+    'Coinbase is processing',
+    'On the way to your bank',
+  ];
+  // Which step is current for this phase.
+  const activeIdx = phase === 'waiting' ? 1
+    : (phase === 'confirm' || phase === 'sending') ? 2
+    : phase === 'sent' ? 3
+    : phase === 'paid' ? 4
+    : /* expired/failed */ (getCashOutSentDigest() ? 3 : 1);
 
-  if (phase === 'waiting') {
-    return (
-      <Card accent="rgba(148,163,184,0.5)">
-        <Row>
-          <span style={muted}>⏳ Finish your cash-out in Coinbase — we&apos;ll take it from here.</span>
-          <button onClick={dismiss} style={ghostBtn}>Dismiss</button>
-        </Row>
-      </Card>
-    );
-  }
+  const steps: Step[] = STEP_LABELS.map((label, i) => ({
+    label,
+    state: phase === 'paid' ? 'done' : i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'pending',
+  }));
 
-  if (phase === 'confirm' || phase === 'sending') {
-    const amount = tx?.sellAmount ?? '0';
-    // Step 2 spends from the WALLET (where step 1 staged the funds).
-    const insufficient = BigInt(walletBalance || '0') < humanToBase(amount);
-    return (
-      <Card accent="var(--color-savings)">
-        <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)' }}>
-          Cash out ${formatMoneyHuman(amount)} with Coinbase
-        </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
-          Send ${formatMoneyHuman(amount)} {tx?.asset ?? 'USDC'} to Coinbase to complete it.
-          Complete within 30 minutes or the cash-out expires.
-        </div>
-        {insufficient && (
-          <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>
-            Your wallet only has ${formatMoney(walletBalance || '0')} staged — the order can&apos;t be covered.
-          </div>
-        )}
-        <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
-          Your payout goes to the account you pick in Coinbase — bank, or your Coinbase USD
-          balance. Bank not listed? Verify it at coinbase.com → Payment methods.
-        </div>
-        {error && <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>{error}</div>}
-        <Row>
-          <button onClick={dismiss} disabled={phase === 'sending'} style={ghostBtn}>Cancel</button>
-          <button
-            onClick={handleSign}
-            disabled={phase === 'sending' || insufficient}
-            style={{ ...primaryBtn, opacity: phase === 'sending' || insufficient ? 0.6 : 1 }}
-          >
-            {phase === 'sending' ? 'Sending…' : 'Send to Coinbase'}
-          </button>
-        </Row>
-      </Card>
-    );
-  }
+  const accent = phase === 'failed' ? 'rgba(239,68,68,0.5)'
+    : phase === 'expired' ? 'rgba(245,158,11,0.6)'
+    : 'var(--color-savings)';
 
-  if (phase === 'sent') {
-    const digest = getCashOutSentDigest();
-    const received = !!tx?.txHash; // Coinbase has detected the on-chain deposit
-    return (
-      <Card accent="var(--color-savings)">
-        <div style={{ fontSize: '0.85rem', color: 'var(--color-text)', fontWeight: 600 }}>
-          {received ? '✓ Coinbase received your USDC — selling…' : '✓ Sent on-chain — waiting for Coinbase to receive it…'}
-        </div>
-        {digest && (
-          <a
-            href={`https://suivision.xyz/txblock/${digest}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}
-          >
-            {digest.slice(0, 12)}…{digest.slice(-8)} ↗
-          </a>
-        )}
-        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-          Coinbase will also text or email you updates.
-        </span>
-      </Card>
-    );
-  }
+  const amount = tx?.sellAmount ?? '0';
+  const digest = getCashOutSentDigest();
 
-  if (phase === 'paid') {
-    const amount = formatMoneyHuman(tx?.fiatAmount ?? tx?.sellAmount ?? '0');
-    const currency = tx?.fiatCurrency ?? 'USD';
-    const money = currency === 'USD' ? `$${amount}` : `${currency} ${amount}`;
-    const method = tx?.paymentMethod?.toUpperCase();
-    const title = method === 'ACH_BANK_ACCOUNT'
-      ? `✓ ${money} is on the way to your bank.`
-      : method === 'FIAT_WALLET'
-        ? `✓ ${money} is now in your Coinbase ${currency} balance.`
-        : method === 'PAYPAL'
-          ? `✓ ${money} is on the way to your PayPal account.`
-          : `✓ Your ${money} cash-out is complete.`;
-    const detail = method === 'ACH_BANK_ACCOUNT'
-      ? 'Bank transfers (ACH) take 1–3 business days. Coinbase will also text or email you updates.'
-      : 'Coinbase will also text or email you updates.';
-    return (
-      <Card accent="var(--color-savings)">
-        <Row>
-          <span style={{ fontSize: '0.875rem', color: 'var(--color-savings)', fontWeight: 600 }}>
-            {title}
-          </span>
-          <button onClick={dismiss} style={ghostBtn}>Done</button>
-        </Row>
-        <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-          {detail}
-        </span>
-      </Card>
-    );
-  }
-
-  if (phase === 'expired') {
-    return (
-      <Card accent="rgba(245,158,11,0.6)">
-        <Row>
-          <span style={muted}>This cash-out expired — start again from Send → Cash out.</span>
-          <button onClick={dismiss} style={ghostBtn}>Dismiss</button>
-        </Row>
-      </Card>
-    );
-  }
-
-  // failed (incl. price-drop cancel after send — funds land in their Coinbase account)
   return (
-    <Card accent="rgba(239,68,68,0.5)">
-      <Row>
-        <span style={muted}>
-          Coinbase couldn&apos;t complete the sale — your {tx?.asset ?? 'USDC'} is in your Coinbase account.
-        </span>
-        <button onClick={dismiss} style={ghostBtn}>Dismiss</button>
-      </Row>
-      {tx?.status && (
-        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}>
-          Coinbase status: {tx.status}
-        </span>
+    <StepCard accent={accent}>
+      <StepList steps={steps} />
+
+      {/* Failure / expiry replace the current step's detail with the terminal state. */}
+      {phase === 'expired' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+          <span style={{ fontSize: '0.82rem', color: 'var(--color-muted)' }}>This cash-out expired — start again from Send → Cash out.</span>
+          <button onClick={dismiss} style={stepGhostBtn}>Dismiss</button>
+        </div>
       )}
-    </Card>
+      {phase === 'failed' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <span style={{ fontSize: '0.82rem', color: 'var(--color-muted)' }}>
+              Coinbase couldn&apos;t complete the sale — your {tx?.asset ?? 'USDC'} is in your Coinbase account.
+            </span>
+            <button onClick={dismiss} style={stepGhostBtn}>Dismiss</button>
+          </div>
+          {tx?.status && <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}>Coinbase status: {tx.status}</span>}
+        </div>
+      )}
+
+      {/* ② Waiting — the only step where Dismiss is offered (consequence stated). */}
+      {phase === 'waiting' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)' }}>
+            Pick your amount and confirm in Coinbase — we&apos;ll bring it back here to finish.
+          </span>
+          <button
+            onClick={dismiss}
+            title="Your money will return to your wallet and you can add it back"
+            style={stepGhostBtn}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* ③ Your turn — send $X (no Dismiss here). */}
+      {(phase === 'confirm' || phase === 'sending') && (() => {
+        const insufficient = BigInt(walletBalance || '0') < humanToBase(amount);
+        return (
+          <>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)' }}>
+              Send ${formatMoneyHuman(amount)} {tx?.asset ?? 'USDC'} to Coinbase
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)' }}>Complete within 30 minutes or the cash-out expires.</div>
+            {insufficient && (
+              <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>
+                Your wallet only has ${formatMoney(walletBalance || '0')} staged — the order can&apos;t be covered.
+              </div>
+            )}
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>
+              Your payout goes to the account you pick in Coinbase — bank, or your Coinbase USD balance.
+              Bank not listed? Verify it at coinbase.com → Payment methods.
+            </div>
+            {error && <div style={{ fontSize: '0.78rem', color: 'rgba(252,165,165,0.9)' }}>{error}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={handleSign} disabled={phase === 'sending' || insufficient} style={{ ...stepPrimaryBtn, opacity: phase === 'sending' || insufficient ? 0.6 : 1 }}>
+                {phase === 'sending' ? 'Sending…' : 'Confirm & send'}
+              </button>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ④ Sent — Coinbase processing. */}
+      {phase === 'sent' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <div style={{ fontSize: '0.82rem', color: 'var(--color-text)', fontWeight: 600 }}>
+            {tx?.txHash ? 'Coinbase received your USDC — selling…' : 'Sent on-chain — waiting for Coinbase to receive it…'}
+          </div>
+          {digest && (
+            <a href={`https://suivision.xyz/txblock/${digest}`} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-muted)' }}>
+              {digest.slice(0, 12)}…{digest.slice(-8)} ↗
+            </a>
+          )}
+          <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>Coinbase will also text or email you updates.</span>
+        </div>
+      )}
+
+      {/* ⑤ Paid — terminal. */}
+      {phase === 'paid' && (() => {
+        const fiat = formatMoneyHuman(tx?.fiatAmount ?? tx?.sellAmount ?? '0');
+        const currency = tx?.fiatCurrency ?? 'USD';
+        const money = currency === 'USD' ? `$${fiat}` : `${currency} ${fiat}`;
+        const method = tx?.paymentMethod?.toUpperCase();
+        const title = method === 'ACH_BANK_ACCOUNT' ? `${money} is on the way to your bank.`
+          : method === 'FIAT_WALLET' ? `${money} is now in your Coinbase ${currency} balance.`
+          : method === 'PAYPAL' ? `${money} is on the way to your PayPal account.`
+          : `Your ${money} cash-out is complete.`;
+        const detail = method === 'ACH_BANK_ACCOUNT'
+          ? 'Bank transfers (ACH) take 1–3 business days. Coinbase will also text or email you updates.'
+          : 'Coinbase will also text or email you updates.';
+        return (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-savings)', fontWeight: 600 }}>✓ {title}</span>
+              <button onClick={dismiss} style={stepGhostBtn}>Done</button>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{detail}</span>
+          </>
+        );
+      })()}
+    </StepCard>
   );
 }
-
-// ── Presentational bits ───────────────────────────────────────────────────────
-
-function Card({ accent, children }: { accent: string; children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: '0.625rem',
-      padding: '0.75rem 1rem', marginBottom: '0.875rem',
-      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(148,163,184,0.15)',
-      borderLeft: `3px solid ${accent}`, borderRadius: '0.75rem',
-    }}>
-      {children}
-    </div>
-  );
-}
-
-function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>{children}</div>;
-}
-
-const muted: CSSProperties = { fontSize: '0.82rem', color: 'var(--color-muted)', flex: 1 };
-
-const ghostBtn: CSSProperties = {
-  background: 'transparent', border: '1px solid rgba(148,163,184,0.2)',
-  color: 'var(--color-muted)', padding: '0.35rem 0.65rem',
-  borderRadius: '0.4rem', fontSize: '0.78rem', cursor: 'pointer', flexShrink: 0,
-};
-
-const primaryBtn: CSSProperties = {
-  background: 'var(--color-savings)', border: 'none', color: '#0a0f1e',
-  padding: '0.35rem 0.875rem', borderRadius: '0.4rem',
-  fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-};

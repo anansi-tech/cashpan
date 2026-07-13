@@ -91,8 +91,8 @@ function HeadlineSentence({ proposal, cashOutStage }: { proposal: Proposal; cash
 
 // One row per affected pocket, both tenses: "SPEND  $6.00 → $1.00".
 // Showing only the after-value made it read as the CURRENT balance.
-function PocketRow({ icon, label, before, after, color }: {
-  icon: string; label: string; before: number; after: number; color: string;
+function PocketRow({ icon, label, before, after, color, approx }: {
+  icon: string; label: string; before: number; after: number; color: string; approx?: boolean;
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.625rem' }}>
@@ -102,7 +102,7 @@ function PocketRow({ icon, label, before, after, color }: {
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
         <span style={{ color: 'var(--color-muted)' }}>${fmtAmt(before)}</span>
         <span style={{ color: 'var(--color-muted)' }}> → </span>
-        <span style={{ fontWeight: 700, color }}>${fmtAmt(Math.max(0, after))}</span>
+        <span style={{ fontWeight: 700, color }}>{approx ? '~' : ''}${fmtAmt(Math.max(0, after))}</span>
       </span>
     </div>
   );
@@ -116,8 +116,8 @@ function OutcomeStrip({ proposal }: { proposal: Proposal }) {
   const stripStyle = { background: 'rgba(10,15,30,0.5)', borderRadius: '0.625rem', padding: '0.625rem 0.875rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' } as const;
   const spendRow = (after: number) =>
     <PocketRow icon="💵" label="Spend" before={spend} after={after} color="var(--color-liquid)" />;
-  const saveRow = (after: number) =>
-    <PocketRow icon="💰" label="Save" before={savings} after={after} color="var(--color-savings-bright)" />;
+  const saveRow = (after: number, approx = false) =>
+    <PocketRow icon="💰" label="Save" before={savings} after={after} color="var(--color-savings-bright)" approx={approx} />;
 
   if (proposal.action === 'send' || proposal.action === 'withdrawToMe') {
     return <div style={stripStyle}>{spendRow(spend - amt)}</div>;
@@ -126,7 +126,8 @@ function OutcomeStrip({ proposal }: { proposal: Proposal }) {
     return (
       <div style={stripStyle}>
         {spendRow(spend - amt)}
-        {saveRow(savings + amt)}
+        {/* cToken mint floors — Save lands a sub-cent lower than +amt, so "~". */}
+        {saveRow(savings + amt, true)}
       </div>
     );
   }
