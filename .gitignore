@@ -11,3 +11,5 @@ move/build/
 *.tsbuildinfo
 .vercel
 .env*
+!.env.example
+!**/.env.example
