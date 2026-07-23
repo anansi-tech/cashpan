@@ -111,7 +111,7 @@ export function AutopilotSection({ vaultCtx, compact }: { vaultCtx: VaultTxConte
 
       <div style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.6, marginBottom: '0.5rem' }}>
         CashPan will automatically move money between your Spend and Save pockets to match your
-        rule (keep ${settings.buffer} in Spend), up to ${dailyLimit} {COIN_SYM} per day. You can
+        rule (keep ${settings.buffer} in Spend), about ${dailyLimit} {COIN_SYM} a day. You can
         turn this off anytime — it stops instantly.
       </div>
 
