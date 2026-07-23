@@ -22,6 +22,10 @@ const ALLOWED_FUNCTIONS = new Set([
   'redeem_position',
   'create_vault',
   'deposit',
+  // Autopilot enable/disable — owner-signed, sponsored like the other owner
+  // verbs. Both are capability-scoped by the Move layer (OwnerCap required).
+  'issue_agent_cap',
+  'revoke',
 ]);
 
 const ALLOWED_MODULE = 'vault';

@@ -16,6 +16,12 @@ export interface UserSettings {
   band: string;
 }
 
+export interface AutopilotState {
+  enabled: boolean;
+  suspended?: boolean;
+  suspendReason?: string;
+}
+
 export interface AppState {
   balances: Balances | null;
   earnings: Earnings | null;
@@ -24,6 +30,7 @@ export interface AppState {
   proposals: BrainProposal[];
   contacts: Contact[];
   settings: UserSettings;
+  autopilot: AutopilotState;
 }
 
 interface VaultContextValue extends AppState {
@@ -59,6 +66,7 @@ export function VaultDataProvider({
     proposals: [],
     contacts: initial?.contacts ?? [],
     settings: DEFAULT_SETTINGS,
+    autopilot: { enabled: false },
   });
   // Server-rendered initial data counts as loaded — skeletons are only for
   // a genuinely empty first paint.

@@ -136,7 +136,7 @@ export function AppShell({ vaultCtx }: { vaultCtx: VaultTxContext }) {
 
           {/* Profile */}
           <div style={{ display: mobileTab === 'profile' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
-            <ProfileContent address={vaultCtx.userAddress} vaultId={vaultCtx.vaultId} />
+            <ProfileContent address={vaultCtx.userAddress} vaultId={vaultCtx.vaultId} vaultCtx={vaultCtx} />
           </div>
         </div>
 

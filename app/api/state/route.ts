@@ -82,5 +82,6 @@ export async function GET(req: Request): Promise<Response> {
     proposals: balances ? computeProposals(walletBalance, balances, settings) : [],
     contacts,
     settings,
+    autopilot: vault.autopilot ?? { enabled: false },
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

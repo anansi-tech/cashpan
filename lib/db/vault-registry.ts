@@ -29,6 +29,22 @@ export interface VaultRecord {
   /** Coinbase offramp deposit addresses seen for this user — pure label cache
       so cash-out sends read "Coinbase (cash out)" in activity. Optional, unqueried. */
   offrampAddresses?: string[];
+  /** Autopilot = OWNER INTENT (not derived), so storing it is correct.
+      Absent = disabled; no backfill needed (absence is a handled state). */
+  autopilot?: Autopilot;
+}
+
+export interface Autopilot {
+  enabled: boolean;
+  /** AgentCap minted to the service agent address at enable time. */
+  agentCapId?: string;
+  /** User-chosen soft daily limit, base units — enforced by the WORKER.
+      The chain's own per_tx/daily caps are the immutable hard bound. */
+  dailyCapBase?: string;
+  enabledAt?: Date;
+  /** Set by the worker after repeated on-chain aborts; owner must re-enable. */
+  suspended?: boolean;
+  suspendReason?: string;
 }
 
 type VaultDoc = VaultRecord & Document;
@@ -56,6 +72,17 @@ const VaultSchema = new Schema<VaultDoc>({
   buffer:           { type: String },
   band:             { type: String },
   offrampAddresses: { type: [String], default: [] },
+  autopilot: {
+    type: new Schema<Autopilot>({
+      enabled:       { type: Boolean, required: true },
+      agentCapId:    { type: String },
+      dailyCapBase:  { type: String },
+      enabledAt:     { type: Date },
+      suspended:     { type: Boolean },
+      suspendReason: { type: String },
+    }, { _id: false }),
+    required: false,
+  },
 });
 VaultSchema.index({ identityKey: 1, network: 1 }, { unique: true });
 
@@ -96,6 +123,32 @@ export async function getActiveVault(identityKey: string, network = 'mainnet'): 
 export async function updateSettings(identityKey: string, settings: { buffer?: string; band?: string }): Promise<void> {
   await connectDB();
   await getModel().updateOne({ identityKey }, { $set: settings });
+}
+
+// ─── Autopilot (owner intent) ─────────────────────────────────────────────────
+
+export async function setAutopilot(identityKey: string, autopilot: Autopilot): Promise<void> {
+  await connectDB();
+  await getModel().updateOne({ identityKey }, { $set: { autopilot } });
+}
+
+/** Worker: every vault with autopilot on and not suspended, for this network. */
+export async function listAutopilotVaults(network: string): Promise<VaultRecord[]> {
+  await connectDB();
+  return getModel().find({
+    network,
+    'autopilot.enabled': true,
+    'autopilot.suspended': { $ne: true },
+  }).lean() as Promise<VaultRecord[]>;
+}
+
+/** Worker: park a vault after repeated on-chain aborts — owner must re-enable. */
+export async function suspendAutopilot(identityKey: string, reason: string): Promise<void> {
+  await connectDB();
+  await getModel().updateOne(
+    { identityKey },
+    { $set: { 'autopilot.suspended': true, 'autopilot.suspendReason': reason } },
+  );
 }
 
 // ─── Offramp deposit addresses (activity label cache) ─────────────────────────

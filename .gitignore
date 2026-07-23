@@ -1,13 +1,21 @@
+# Deps — the one deliberate blanket rule: node_modules must never be tracked
+# at any depth (root + worker/).
 node_modules/
-dist/
-.env
-.env.*
-!.env.example
-move/build/
 
-# next.js
+# Build output — exact paths only. A blanket `dist/` nearly ate worker/dist
+# during the Railway work; name the directory you mean.
+/worker/dist/
+/move/build/
 /.next/
 /out/
+/.vercel/
 *.tsbuildinfo
-.vercel
-.env*
+
+# Env secrets — EXACT paths, never `.env*`: a blanket pattern silently
+# swallowed worker/.env.example once (negation-order trap). Every
+# .env.example stays tracked by construction. Creating a new env file?
+# Add its exact path here in the same commit.
+/.env
+/.env.local
+/.env.testnet.bak
+/worker/.env

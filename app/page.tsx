@@ -83,7 +83,7 @@ export default async function Page() {
                 <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>Sui {suiNetwork()}</span>
               </div>
               <div className="account-menu-desktop">
-                <AccountMenu address={vault.payoutAddress} vaultId={vault.vaultId} />
+                <AccountMenu address={vault.payoutAddress} vaultId={vault.vaultId} vaultCtx={vaultCtx} />
               </div>
             </div>
           </div>

@@ -129,6 +129,59 @@ Everything is driven by three `.env` values — **no code changes needed**:
 
 **To use USDC or Sui Dollar instead**: set the three vars above manually and skip the mint step. The vault, agent, and UI adapt automatically. The `test_usd` module is published but unused.
 
+## Autopilot (Phase A — agent spine)
+
+Opt-in, per vault, revocable instantly. `worker/` is a separate deployable
+(Railway/Fly) running a **rules engine — no LLM anywhere on the path** (the
+model never signs and never triggers signing). Loop: every 60s, load
+autopilot-enabled vaults, run the SAME pure policy the app uses
+(`computeProposals` in `lib/brain.ts` — one implementation, two callers), and
+execute `vault::rebalance` with a scoped AgentCap.
+
+- **Keys**: `AGENT_SECRET_KEY` lives ONLY in the worker env — NEVER in the
+  Next.js/Vercel env. The app gets `AGENT_ADDRESS` (public) to mint the cap to.
+  Env now, KMS later.
+- **Gas**: the agent pays its own gas (Shinami sponsorship is for users only).
+  Worker logs LOW GAS under 0.5 SUI. The agent-signed `rebalance` is
+  deliberately NOT in the sponsor whitelist — sponsoring it would let anyone
+  with a session drain the gas station.
+- **VERIFIED against the deployed vault.move (do not re-derive from the spec)**:
+  `issue_agent_cap(owner_cap, vault, ctx)` takes **no cap arguments**;
+  `per_tx_cap`/`daily_cap` are Vault fields fixed at `create_vault` with **no
+  setter** (`set_outflow_caps` only touches the OUTFLOW caps). Existing vaults:
+  $50/tx, $200/day, immutable. The "daily" cap resets when the **Sui epoch**
+  advances (`current_epoch > last_reset_epoch`), not on a calendar day.
+  Therefore the user-chosen daily limit is a **worker-enforced soft cap**
+  (`autopilot.dailyCapBase`, owner intent in Mongo); the chain caps are the
+  hard bound.
+- **Enable/disable** are owner-signed and sponsored (`issue_agent_cap` and
+  `revoke` are whitelisted in `lib/sponsor-guard.ts`). Disable bumps
+  `agent_nonce`, killing every outstanding cap instantly — the chain is the
+  authority; the Mongo flag only stops the worker from trying.
+- **One voice**: while autopilot is on, the app suppresses its own sweep/topup
+  proposals and suggestion chips (arrival/add proposals unaffected). Manual
+  Move always works; the 5-min per-vault-per-direction cooldown keeps the
+  worker from immediately counteracting it.
+- **Attribution** is an on-chain fact: rebalance events whose tx `sender` is
+  the agent address render as "Autopilot swept/topped up" — never a stored label.
+- **Deploy (Railway, repo-root)**: RAILWAY BUILDS THE BUNDLE — set in the
+  service's dashboard Settings (dashboard values win over `railway.json`,
+  which mirrors them for reference): Root Directory EMPTY (cleared), Build
+  Command `npm ci && npm --prefix worker ci && npm --prefix worker run build`,
+  Start Command `node worker/dist/index.js`, healthcheck `/healthz`. The
+  bundle is built at deploy from source and is NOT committed (`worker/dist/`
+  stays gitignored) — there is no stale-bundle failure mode, so never commit
+  `dist/` or "fix" a deploy by pushing a locally built bundle.
+  Root Directory must stay empty: `root=worker/` cannot see `lib/`, which the
+  worker imports. `npm start` (tsx) is unchanged for local work.
+  esbuild externals are only the ESM-safe deps (`@mysten/sui`, `mongoose`,
+  `dotenv`); `@suilend/sdk` must be BUNDLED (its extension-less deep imports
+  break plain Node ESM), which drags in CJS deps — hence the `createRequire`
+  banner in the build script. Output must stay ESM (`@mysten/sui` is ESM-only).
+- **Suspension**: 3 consecutive aborts on a vault sets `autopilot.suspended`;
+  the app shows a pause notice and the owner must re-enable. Never retry-loop
+  into gas burn.
+
 ## UI layout rule (standing)
 After any layout refactor (shell restructure, new column, tab changes), verify
 EVERY feature has a reachable entry point on BOTH shells before committing.
