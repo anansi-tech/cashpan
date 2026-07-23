@@ -148,6 +148,9 @@ on desktop, Receive QR blank on desktop (address from `getSession()` raced),
 Activity detail opened full-screen sheet on desktop. Fix pattern: features
 removed from a layout must land somewhere else in the same commit.
 
+## Release tagging (standing)
+Releases are tagged from main (`vX.Y.Z`); tag before starting any major feature branch.
+
 ## Migration rule (standing)
 Any change that adds a required/queried field to a Mongo schema, or changes the
 semantics of an existing field (network scoping, etc.), MUST include a one-time
@@ -208,3 +211,5 @@ QuickNode Sui Mainnet (SOC2/ISO, free tier):
 - `SUI_RPC_URL` — QuickNode JSON-RPC URL; **unused** — the web path is fully on GraphQL.
 
 Switching providers = change env values only, zero code changes.
+
+
