@@ -164,11 +164,14 @@ execute `vault::rebalance` with a scoped AgentCap.
   worker from immediately counteracting it.
 - **Attribution** is an on-chain fact: rebalance events whose tx `sender` is
   the agent address render as "Autopilot swept/topped up" — never a stored label.
-- **Deploy (Railway, repo-root)**: config lives in `railway.json` — Root
-  Directory EMPTY, build `npm ci && npm --prefix worker ci && npm --prefix
-  worker run build`, start `node worker/dist/index.js`, healthcheck
-  `/healthz`. The bundle is BUILT AT DEPLOY from source and is NOT committed
-  (`worker/dist/` stays gitignored) — there is no stale-bundle failure mode.
+- **Deploy (Railway, repo-root)**: RAILWAY BUILDS THE BUNDLE — set in the
+  service's dashboard Settings (dashboard values win over `railway.json`,
+  which mirrors them for reference): Root Directory EMPTY (cleared), Build
+  Command `npm ci && npm --prefix worker ci && npm --prefix worker run build`,
+  Start Command `node worker/dist/index.js`, healthcheck `/healthz`. The
+  bundle is built at deploy from source and is NOT committed (`worker/dist/`
+  stays gitignored) — there is no stale-bundle failure mode, so never commit
+  `dist/` or "fix" a deploy by pushing a locally built bundle.
   Root Directory must stay empty: `root=worker/` cannot see `lib/`, which the
   worker imports. `npm start` (tsx) is unchanged for local work.
   esbuild externals are only the ESM-safe deps (`@mysten/sui`, `mongoose`,
