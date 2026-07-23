@@ -69,7 +69,7 @@ export function pendingSuggestionPockets(proposals: BrainProposal[], bandHuman: 
  * poll surfaces the follow-up sweep (if the band was crossed) on its own.
  */
 export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const { proposals, settings, refresh } = useVaultData();
+  const { proposals, settings, refresh, autopilot } = useVaultData();
   const [, bump] = useState(0);
 
   // A manual pocket action anywhere (Move form, chat confirm) clears the memory.
@@ -90,7 +90,13 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
   // session start so cash-out #2 gets a FRESH component, not #1's stale phase.
   if (isCashOutActive()) return <CashOutCard key={cashOutStartedAt()} vaultCtx={vaultCtx} />;
 
-  const visible = proposals.filter((p) => !isDismissed(p, settings.band));
+  // While autopilot drives rebalancing, the app must not ALSO propose it —
+  // two voices would race. Arrival/add proposals are unaffected.
+  const autopilotActive = autopilot.enabled && !autopilot.suspended;
+  const visible = proposals.filter((p) => {
+    if (autopilotActive && (p.type === 'sweep-to-save' || p.type === 'topup-from-save')) return false;
+    return !isDismissed(p, settings.band);
+  });
 
   // Onramp handoff owns the slot while pending: ONE stepper advancing
   // ① Paid → ② On the way → ③ Add. The arrival proposal (when it lands)

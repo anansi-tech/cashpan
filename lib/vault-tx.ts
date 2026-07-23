@@ -128,6 +128,66 @@ export function buildWalletSendTx(amountBase: bigint, recipient: string, coinTyp
   return tx;
 }
 
+// ─── Autopilot (agent capability) ─────────────────────────────────────────────
+//
+// VERIFIED against the deployed vault.move:
+//   issue_agent_cap<T>(owner_cap, vault, ctx) -> AgentCap   — NO cap arguments.
+//   revoke<T>(owner_cap, vault)                             — bumps agent_nonce.
+// The rebalance caps (per_tx_cap / daily_cap) are VAULT fields fixed at
+// create_vault and have no setter (only set_outflow_caps exists, for the
+// outflow caps). So a user-chosen daily limit is a WORKER-side soft cap; the
+// chain's caps are the hard bound.
+
+/** Owner-signed: mint an AgentCap at the current nonce and hand it to the agent. */
+export function buildIssueAgentCapTx(agentAddress: string, ctx: VaultTxContext): Transaction {
+  const tx = new Transaction();
+  const [cap] = tx.moveCall({
+    target: `${ctx.packageId}::vault::issue_agent_cap`,
+    typeArguments: [ctx.coinType],
+    arguments: [tx.object(ctx.ownerCapId), tx.object(ctx.vaultId)],
+  });
+  tx.transferObjects([cap], tx.pure.address(agentAddress));
+  return tx;
+}
+
+/** Owner-signed: bump agent_nonce — every outstanding AgentCap dies instantly. */
+export function buildRevokeAgentTx(ctx: VaultTxContext): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::revoke`,
+    typeArguments: [ctx.coinType],
+    arguments: [tx.object(ctx.ownerCapId), tx.object(ctx.vaultId)],
+  });
+  return tx;
+}
+
+/**
+ * AGENT-signed rebalance (worker only — the agent pays its own gas).
+ * Chain enforces: nonce validity → venue → per-tx cap → daily cap → balance.
+ */
+export function buildAgentRebalanceTx(
+  agentCapId: string,
+  direction: 0 | 1,
+  amountBase: bigint,
+  ctx: VaultTxContext,
+): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::rebalance`,
+    typeArguments: [ctx.pType, ctx.coinType],
+    arguments: [
+      tx.object(agentCapId),
+      tx.object(ctx.vaultId),
+      tx.object(ctx.venueId),
+      tx.object(ctx.lendingMarketId),
+      tx.object('0x0000000000000000000000000000000000000000000000000000000000000006'),
+      tx.pure.u8(direction),
+      tx.pure.u64(amountBase),
+    ],
+  });
+  return tx;
+}
+
 // ─── Brain PTB builders ───────────────────────────────────────────────────────
 
 export function buildDepositTx(balance: bigint, ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>): Transaction {

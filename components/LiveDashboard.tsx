@@ -155,8 +155,10 @@ function DashSkeleton() {
 }
 
 export function LiveDashboard() {
-  const { balances, earnings, isStale, proposals, settings, walletBalance } = useVaultData();
-  const hints = pendingSuggestionPockets(proposals, settings.band);
+  const { balances, earnings, isStale, proposals, settings, walletBalance, autopilot } = useVaultData();
+  const autopilotActive = autopilot.enabled && !autopilot.suspended;
+  // Autopilot acts instead of suggesting — no "suggestion" chips while it's on.
+  const hints = autopilotActive ? { spend: false, save: false } : pendingSuggestionPockets(proposals, settings.band);
 
   // Debounce the "get started" empty state: a single zero read mid-drain
   // (position destroyed, liquid not yet refreshed) must not flash onboarding.
@@ -225,6 +227,19 @@ export function LiveDashboard() {
           ${formatMoney(total)} <span style={{ fontSize: '1.1rem', color: 'var(--color-muted)', fontWeight: 400 }}>{COIN_SYM}</span>
         </div>
       </div>
+
+      {/* Autopilot state — the worker is acting on these pockets */}
+      {autopilot.enabled && !autopilot.suspended && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.68rem', color: 'var(--color-savings)' }}>
+          <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--color-savings)', display: 'inline-block' }} />
+          Autopilot on
+        </div>
+      )}
+      {autopilot.suspended && (
+        <div style={{ fontSize: '0.72rem', color: 'rgba(251,191,36,0.9)', lineHeight: 1.5 }}>
+          ⚠ Autopilot paused — needs attention. Turn it on again in Profile.
+        </div>
+      )}
 
       {/* Pocket cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

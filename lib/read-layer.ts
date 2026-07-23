@@ -22,6 +22,9 @@ const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
 // Latest package id in the upgrade chain — moveCall targets ONLY. Calls to the
 // original id would execute the pre-upgrade bytecode.
 const PACKAGE_ID_LATEST = process.env.PACKAGE_ID_LATEST ?? PACKAGE_ID;
+// Autopilot attribution: rebalances SENT BY the agent address are the worker's.
+// This is an on-chain fact (tx sender), never a stored label.
+const AGENT_ADDRESS = (process.env.AGENT_ADDRESS ?? '').toLowerCase();
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
 
 async function fetchSavingsValue(vaultId: string): Promise<bigint> {
@@ -166,9 +169,10 @@ export async function getAgentActivity(
         const direction = Number(json.direction ?? 0);
         const amount = String(json.amount ?? '0');
         const display = `$${baseToHuman(amount)}`;
+        const byAutopilot = !!AGENT_ADDRESS && (ev.sender?.address ?? '').toLowerCase() === AGENT_ADDRESS;
         const text = direction === 0
-          ? `Swept ${display} ${COIN_SYMBOL} to savings`
-          : `Topped up ${display} ${COIN_SYMBOL} from savings`;
+          ? `${byAutopilot ? 'Autopilot swept' : 'Swept'} ${display} ${COIN_SYMBOL} to savings`
+          : `${byAutopilot ? 'Autopilot topped up' : 'Topped up'} ${display} ${COIN_SYMBOL} from savings`;
         events.push({
           type: 'rebalance',
           text,

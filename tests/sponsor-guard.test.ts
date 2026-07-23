@@ -15,10 +15,13 @@ const mv = (pkg: string, fn: string): SponsorCommand => ({ $kind: 'MoveCall', Mo
 const transfer = (): SponsorCommand => ({ $kind: 'TransferObjects' });
 
 describe('validateSponsorCommands', () => {
-  test.each(['owner_send', 'withdraw', 'owner_rebalance', 'redeem_position', 'create_vault', 'deposit'])(
-    'accepts vault::%s', (fn) => {
-      expect(validateSponsorCommands([mv(PKG, fn)], allowed).ok).toBe(true);
-    });
+  test.each([
+    'owner_send', 'withdraw', 'owner_rebalance', 'redeem_position', 'create_vault', 'deposit',
+    // Autopilot enable/disable — owner-signed, OwnerCap-scoped by the Move layer.
+    'issue_agent_cap', 'revoke',
+  ])('accepts vault::%s', (fn) => {
+    expect(validateSponsorCommands([mv(PKG, fn)], allowed).ok).toBe(true);
+  });
 
   test('accepts MoveCall + TransferObjects (withdraw, create_vault shapes)', () => {
     expect(validateSponsorCommands([mv(PKG, 'withdraw'), transfer()], allowed).ok).toBe(true);
@@ -37,9 +40,13 @@ describe('validateSponsorCommands', () => {
     expect(r.ok).toBe(false);
   });
 
-  test('REJECTS a non-whitelisted vault function (e.g. revoke)', () => {
-    expect(validateSponsorCommands([mv(PKG, 'revoke')], allowed).ok).toBe(false);
-    expect(validateSponsorCommands([mv(PKG, 'issue_agent_cap')], allowed).ok).toBe(false);
+  test('REJECTS non-whitelisted vault functions', () => {
+    // The AGENT pays its own gas — an agent-signed rebalance must never be
+    // sponsorable, or anyone with a session could drain our gas station.
+    expect(validateSponsorCommands([mv(PKG, 'rebalance')], allowed).ok).toBe(false);
+    expect(validateSponsorCommands([mv(PKG, 'agent_send')], allowed).ok).toBe(false);
+    expect(validateSponsorCommands([mv(PKG, 'agent_withdraw_to_owner')], allowed).ok).toBe(false);
+    expect(validateSponsorCommands([mv(PKG, 'set_payout_address')], allowed).ok).toBe(false);
   });
 
   test('REJECTS a call to the wrong module', () => {

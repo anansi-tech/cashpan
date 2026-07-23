@@ -5,6 +5,8 @@ import { useAuth } from './AuthProvider';
 import { useVaultData } from './VaultDataProvider';
 import { formatMoney } from '@/lib/format';
 import { TrustSheet } from './TrustSheet';
+import { AutopilotSection } from './AutopilotSection';
+import type { VaultTxContext } from '@/lib/vault-tx';
 
 const numInputStyle: React.CSSProperties = {
   width: '4rem',
@@ -206,10 +208,13 @@ function AutoSaveRule({ compact }: { compact?: boolean }) {
 export function ProfileContent({
   address,
   vaultId,
+  vaultCtx,
   compact = false,
 }: {
   address: string;
   vaultId: string;
+  /** Needed to build the owner-signed autopilot cap PTBs; omit to hide the section. */
+  vaultCtx?: VaultTxContext;
   compact?: boolean;
 }) {
   const { signOut, user } = useAuth();
@@ -260,6 +265,8 @@ export function ProfileContent({
 
       {/* 3. Auto-save rule */}
       <AutoSaveRule compact={compact} />
+
+      {vaultCtx && <AutopilotSection vaultCtx={vaultCtx} compact={compact} />}
 
       {/* 4. How CashPan works (trust sheet) */}
       <div style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -337,7 +344,7 @@ export function ProfileContent({
 
 // ── AccountMenu — trigger + dropdown shell only ───────────────────────────────
 
-export function AccountMenu({ address, vaultId }: { address: string; vaultId: string }) {
+export function AccountMenu({ address, vaultId, vaultCtx }: { address: string; vaultId: string; vaultCtx?: VaultTxContext }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -383,7 +390,7 @@ export function AccountMenu({ address, vaultId }: { address: string; vaultId: st
           border: '1px solid var(--color-border)', borderRadius: '0.875rem',
           boxShadow: '0 12px 40px rgba(0,0,0,0.5)', zIndex: 200, overflow: 'hidden',
         }}>
-          <ProfileContent address={address} vaultId={vaultId} compact />
+          <ProfileContent address={address} vaultId={vaultId} vaultCtx={vaultCtx} compact />
         </div>
       )}
     </div>

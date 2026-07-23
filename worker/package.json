@@ -1,0 +1,17 @@
+{
+  "name": "cashpan-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CashPan Autopilot worker — deterministic buffer/band rebalancing. No LLM.",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "2.17.0",
+    "dotenv": "^17.4.2",
+    "mongoose": "^9.7.2",
+    "tsx": "^4.19.4"
+  }
+}

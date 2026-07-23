@@ -165,6 +165,8 @@ export interface GQLEventNode {
   contents: { json: Record<string, unknown> | null } | null;
   timestamp: string | null;
   transaction: { digest: string } | null;
+  /** Event sender — the on-chain fact used to attribute autopilot actions. */
+  sender: { address: string } | null;
 }
 
 export async function fetchEventsGQL(
@@ -173,7 +175,7 @@ export async function fetchEventsGQL(
 ): Promise<GQLEventNode[]> {
   const data = await gqlPost<{ events?: { nodes?: GQLEventNode[] } }>(`{
     events(filter: { type: "${eventType}" }, last: ${last}) {
-      nodes { contents { json } timestamp transaction { digest } }
+      nodes { contents { json } timestamp transaction { digest } sender { address } }
     }
   }`, 'events');
   return data.events?.nodes ?? [];
@@ -200,7 +202,7 @@ export async function queryPackageEvents(
     };
   }>(`{
     events(filter: { type: "${eventType}" }, first: ${limit}${afterClause}) {
-      nodes { contents { json } timestamp transaction { digest } }
+      nodes { contents { json } timestamp transaction { digest } sender { address } }
       pageInfo { hasNextPage endCursor }
     }
   }`, 'packageEvents');
