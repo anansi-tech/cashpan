@@ -182,6 +182,44 @@ execute `vault::rebalance` with a scoped AgentCap.
   the app shows a pause notice and the owner must re-enable. Never retry-loop
   into gas burn.
 
+## Autopilot Phase B — scheduled sends (standing orders)
+
+"Send mom $20 every Friday": the LLM only AUTHORS policies (chat tool →
+structured proposal → PolicyCard); it never executes, schedules, or signs.
+After owner confirm, execution is deterministic (`worker/policies.ts`).
+
+- **Chain boundary**: `agent_send` aborts unless the recipient is on the
+  owner-signed allowlist (`add_payee`, sponsored + whitelisted) and within the
+  OUTFLOW caps ($20/tx, $100/epoch, set at `create_vault`). A policy to an
+  unlisted address cannot execute regardless of bugs above. `agent_send` is
+  deliberately NOT sponsorable.
+- **Exactly-once**: `policy_runs` (Mongo) is UNIQUE on (policyId, period) —
+  the load-bearing piece. Execution protocol: claim (insert 'executing';
+  dup-key = skip) → sign+submit → mark sent/failed. Period keys derive from
+  the PURE `lib/policy-schedule.ts` (ISO week / YYYY-MM / 'once'; monthly
+  29–31 clamp to month end; all UTC) — tested in `tests/policy-schedule.test.ts`.
+- **Crash recovery**: 'executing' rows >10 min old are verified AGAINST CHAIN
+  (SendEvent match on vault/recipient/amount since claim). Found → sent;
+  verified-absent → retryable 'crash_recovered'; query failed → row is LEFT
+  ALONE and re-verified next pass. THE RULE: when uncertain whether money
+  moved, stop and surface — never resend on ambiguity.
+- **Retries, same period only, no catchup**: insufficient_funds ≤3 attempts
+  ≥1h apart (rebalance pass runs first each tick — topup composition is the
+  only funding path); epoch_cap_wait retries ≥15min until the epoch rolls;
+  chain aborts park the POLICY ('failed', owner must resume). Missed periods
+  never roll forward.
+- **Two doors, one pipeline**: chat `proposeRecurringSend` (guarded by
+  `guardExactAmount` — the policy amount must BE a number the user typed) and
+  SendSheet "Make it repeating" (`POST /api/policies {preview:true}`) both
+  render the same PolicyCard; activation re-validates through the same
+  `proposeRecurringSend()` server-side. Confirm shows every signing step
+  honestly (enable Autopilot / approve recipient / active).
+- **Visibility**: Standing orders list in AccountMenu (pause/delete,
+  session-authed intent — chain caps still bound everything). Failures
+  surface as a card in the proposal slot until acknowledged (server-side
+  flag). Activity rows read "Autopilot sent…" from the on-chain `by_agent`
+  fact, never a stored label.
+
 ## UI layout rule (standing)
 After any layout refactor (shell restructure, new column, tab changes), verify
 EVERY feature has a reachable entry point on BOTH shells before committing.

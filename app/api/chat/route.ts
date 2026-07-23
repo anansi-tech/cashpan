@@ -19,10 +19,14 @@ import {
   proposeWithdrawToMe,
   proposeSweep,
   proposeTopup,
+  proposeRecurringSend,
   buildContactMap,
 } from '@/lib/propose';
 import { resolveVault } from '@/lib/resolve-vault';
-import { guardNumericAmount, guardDrain } from '@/lib/propose-guard';
+import { guardNumericAmount, guardDrain, guardExactAmount } from '@/lib/propose-guard';
+import { listPolicies } from '@/lib/db/policies';
+import { scheduleSentence, nextRun, type PolicySchedule } from '@/lib/policy-schedule';
+import { suiNetwork } from '@/lib/sui';
 
 function buildSystemPrompt(contactNames: string[]): string {
   const contactList =
@@ -39,7 +43,7 @@ CashPan has two pockets:
 ${contactList}
 
 ## Reading data
-Call getBalances, getEarnings, getAgentActivity, or getConfig whenever you need live data. Never guess balances from memory.
+Call getBalances, getEarnings, getAgentActivity, or getConfig whenever you need live data. Never guess balances from memory. For "what are my standing orders?" / "what do I send automatically?" call getStandingOrders.
 
 ## Proposing money moves
 When the user's intent to move money is clear, immediately call the matching propose tool. These tools validate the move from fresh on-chain reads and return a proposal — they do NOT execute anything. A confirmation card appears in the UI for the user to tap.
@@ -50,6 +54,7 @@ When the user's intent to move money is clear, immediately call the matching pro
 - proposeSweepAll({}) — ONLY for "save everything", "sweep it all". Takes no amount.
 - proposeTopup({ amount }) — "move $20 to spending", "top me up with $5". Amount is REQUIRED and must be the number the user said.
 - proposeDrainSave({ keepInSave? }) — ONLY for "move everything/all/max to spend" (no arguments) or "keep $X in save, move the rest" (keepInSave). NEVER call this when the user names an amount to move — use proposeTopup. Never compute amounts from balances yourself.
+- proposeRecurringSend({ amount, payeeLabel, frequency, dayOfWeek?, dayOfMonth?, dateUTC?, timeUTC? }) — "send mom $20 every Friday", "pay rent $50 on the 1st monthly". Amount is REQUIRED and must be the number the user said. This AUTHORS a standing order the user must confirm — it never executes or schedules anything itself.
 
 Amounts are human decimals in ${COIN_SYMBOL} (e.g. "10" = $10.00). Always speak dollars.
 
@@ -280,6 +285,76 @@ export async function POST(req: Request) {
             return { rejected: true, message: `The user said $${guard.userNumber} — call proposeTopup again with amount "${guard.userNumber}".` };
           }
           return p;
+        },
+      }),
+
+      getStandingOrders: tool({
+        description: 'List the user\'s standing orders (recurring/scheduled sends): what, to whom, when, next run, status.',
+        inputSchema: jsonSchema<Record<string, never>>({
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        }),
+        execute: async () => {
+          const policies = await listPolicies(vaultId, suiNetwork());
+          if (policies.length === 0) return { standingOrders: [], note: 'No standing orders set up.' };
+          return {
+            standingOrders: policies.map((p) => {
+              const s = p.schedule as PolicySchedule;
+              const next = p.status === 'active' ? nextRun(s, new Date()) : null;
+              return {
+                sentence: `${scheduleSentence(s)}, send $${formatMoney(BigInt(p.amountBase))} to ${p.recipient.label}`,
+                status: p.status,
+                nextRun: next ? next.toISOString() : null,
+              };
+            }),
+          };
+        },
+      }),
+
+      proposeRecurringSend: tool({
+        description:
+          'AUTHOR a standing order (recurring send) for the user to confirm — never executes anything. ' +
+          'Call for "send X to Y every <weekday>", "pay Y $X monthly on the Nth", "send Y $X on <date>". ' +
+          'The amount is REQUIRED and must be the number the user said.',
+        inputSchema: jsonSchema<{
+          amount: string; payeeLabel: string;
+          frequency: 'weekly' | 'monthly' | 'once';
+          dayOfWeek?: number; dayOfMonth?: number; dateUTC?: string; timeUTC?: string;
+        }>({
+          type: 'object',
+          properties: {
+            amount: { type: 'string', description: 'Amount the user named, e.g. "20"' },
+            payeeLabel: { type: 'string', description: 'Payee label (e.g. "mom"). Must match a known contact.' },
+            frequency: { type: 'string', enum: ['weekly', 'monthly', 'once'] },
+            dayOfWeek: { type: 'number', description: 'Weekly only. ISO: 1=Monday … 7=Sunday.' },
+            dayOfMonth: { type: 'number', description: 'Monthly only. 1–31 (29–31 run on the last day of shorter months).' },
+            dateUTC: { type: 'string', description: 'Once only. YYYY-MM-DD.' },
+            timeUTC: { type: 'string', description: 'HH:MM 24h UTC. Omit unless the user named a time — defaults to 13:00 UTC.' },
+          },
+          required: ['amount', 'payeeLabel', 'frequency'],
+          additionalProperties: false,
+        }),
+        execute: async ({ amount, payeeLabel, frequency, dayOfWeek, dayOfMonth, dateUTC, timeUTC }) => {
+          logTool('proposeRecurringSend', { amount, payeeLabel, frequency, dayOfWeek, dayOfMonth, dateUTC, timeUTC });
+          // Standing orders execute forever — strictest guard: the amount must
+          // BE a number the user typed whenever their message contains one.
+          const guard = guardExactAmount(lastUserText, amount);
+          if (!guard.ok) {
+            return { rejected: true, message: `The user said $${guard.userNumber} — call proposeRecurringSend again with amount "${guard.userNumber}".` };
+          }
+          const schedule: PolicySchedule = {
+            kind: frequency,
+            dayOfWeek, dayOfMonth, dateUTC,
+            timeUTC: timeUTC ?? '13:00',
+          };
+          const active = await listPolicies(vaultId, suiNetwork());
+          const activeTotal = active.filter((p) => p.status === 'active')
+            .reduce((sum, p) => sum + BigInt(p.amountBase), 0n);
+          return proposeRecurringSend(amount, payeeLabel, schedule, vaultId, contactMap, {
+            activePolicyTotalBase: activeTotal,
+            autopilotOn: !!vault.autopilot?.enabled,
+          });
         },
       }),
 

@@ -69,7 +69,7 @@ export function pendingSuggestionPockets(proposals: BrainProposal[], bandHuman: 
  * poll surfaces the follow-up sweep (if the band was crossed) on its own.
  */
 export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
-  const { proposals, settings, refresh, autopilot } = useVaultData();
+  const { proposals, settings, refresh, autopilot, policyFailures } = useVaultData();
   const [, bump] = useState(0);
 
   // A manual pocket action anywhere (Move form, chat confirm) clears the memory.
@@ -83,6 +83,13 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
     recordDismissal(p);
     bump((n) => n + 1);
   }, []);
+
+  // A standing-order failure outranks suggestions: money the owner PLANNED
+  // didn't move. Persists until acknowledged (server-side flag, not local).
+  const failure = policyFailures[0];
+  if (failure) {
+    return <PolicyFailureCard failure={failure} onAcked={refresh} />;
+  }
 
   // An active cash-out owns the slot outright — one visible card, always;
   // arrival/sweep/topup proposals are structurally suppressed until the
@@ -130,6 +137,61 @@ export function ProposalBanner({ vaultCtx }: { vaultCtx: VaultTxContext }) {
           refresh();
         }}
       />
+    </div>
+  );
+}
+
+// ─── Standing-order failure notify (Phase B) ──────────────────────────────────
+
+const FAILURE_COPY: Record<string, (label: string, amount: string) => string> = {
+  insufficient_funds: (l, a) => `Couldn't send ${l}'s $${formatMoneyHuman(a)} — not enough in Spend.`,
+  exceeds_per_tx_cap: (l, a) => `Couldn't send ${l}'s $${formatMoneyHuman(a)} — it's over the per-send limit.`,
+  crash_recovered: (l, a) => `Couldn't complete ${l}'s $${formatMoneyHuman(a)} send. It was NOT sent.`,
+};
+
+function PolicyFailureCard({ failure, onAcked }: {
+  failure: { runId: string; label: string; amountSui: string; error: string; policyStatus: string };
+  onAcked: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const copy = FAILURE_COPY[failure.error]?.(failure.label, failure.amountSui)
+    ?? `Couldn't send ${failure.label}'s $${formatMoneyHuman(failure.amountSui)} (${failure.error}).`;
+
+  const acknowledge = async () => {
+    setBusy(true);
+    try {
+      await fetch('/api/policies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acknowledgeRunId: failure.runId }),
+      });
+      onAcked();
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: '0.6rem',
+      padding: '0.875rem 1rem', marginBottom: '0.875rem',
+      background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.3)',
+      borderLeft: '3px solid rgba(251,191,36,0.8)', borderRadius: '0.75rem',
+    }}>
+      <div style={{ fontSize: '0.85rem', color: 'var(--color-text)', lineHeight: 1.5 }}>
+        ⚠ {copy}
+        {failure.policyStatus === 'failed' && ' The standing order is paused — resume it from your profile once it\'s fixed.'}
+      </div>
+      <button
+        onClick={acknowledge}
+        disabled={busy}
+        style={{
+          alignSelf: 'flex-start', background: 'transparent', cursor: 'pointer',
+          border: '1px solid rgba(251,191,36,0.4)', color: 'rgba(251,191,36,0.9)',
+          borderRadius: '0.5rem', padding: '0.35rem 0.8rem', fontSize: '0.78rem',
+          fontWeight: 600, minHeight: '36px', opacity: busy ? 0.6 : 1,
+        }}
+      >
+        Got it
+      </button>
     </div>
   );
 }

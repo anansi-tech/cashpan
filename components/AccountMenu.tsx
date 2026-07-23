@@ -6,6 +6,7 @@ import { useVaultData } from './VaultDataProvider';
 import { formatMoney } from '@/lib/format';
 import { TrustSheet } from './TrustSheet';
 import { AutopilotSection } from './AutopilotSection';
+import { StandingOrders } from './StandingOrders';
 import type { VaultTxContext } from '@/lib/vault-tx';
 
 const numInputStyle: React.CSSProperties = {
@@ -267,6 +268,9 @@ export function ProfileContent({
       <AutoSaveRule compact={compact} />
 
       {vaultCtx && <AutopilotSection vaultCtx={vaultCtx} compact={compact} />}
+
+      {/* Standing orders (Phase B) — renders only when at least one exists */}
+      <StandingOrders compact={compact} />
 
       {/* 4. How CashPan works (trust sheet) */}
       <div style={{ borderBottom: '1px solid var(--color-border)' }}>
