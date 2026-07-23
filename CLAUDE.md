@@ -164,16 +164,17 @@ execute `vault::rebalance` with a scoped AgentCap.
   worker from immediately counteracting it.
 - **Attribution** is an on-chain fact: rebalance events whose tx `sender` is
   the agent address render as "Autopilot swept/topped up" — never a stored label.
-- **Deploy**: `worker/dist/index.js` is a COMMITTED esbuild bundle — Railway
-  runs `root=worker/` with `npm ci && node dist/index.js`, and that context
-  cannot see the repo's `lib/`, so the bundle ships pre-built. **Re-run
-  `npm run build` in `worker/` and commit the bundle whenever `worker/index.ts`
-  or any `lib/` file it imports changes** — otherwise the deploy silently runs
-  stale code. `npm start` (tsx, reads source directly) is unchanged for local
-  work. Externals are only ESM-safe packages (`@mysten/sui`, `mongoose`,
+- **Deploy (Railway, repo-root)**: config lives in `railway.json` — Root
+  Directory EMPTY, build `npm ci && npm --prefix worker ci && npm --prefix
+  worker run build`, start `node worker/dist/index.js`, healthcheck
+  `/healthz`. The bundle is BUILT AT DEPLOY from source and is NOT committed
+  (`worker/dist/` stays gitignored) — there is no stale-bundle failure mode.
+  Root Directory must stay empty: `root=worker/` cannot see `lib/`, which the
+  worker imports. `npm start` (tsx) is unchanged for local work.
+  esbuild externals are only the ESM-safe deps (`@mysten/sui`, `mongoose`,
   `dotenv`); `@suilend/sdk` must be BUNDLED (its extension-less deep imports
   break plain Node ESM), which drags in CJS deps — hence the `createRequire`
-  banner in the build script.
+  banner in the build script. Output must stay ESM (`@mysten/sui` is ESM-only).
 - **Suspension**: 3 consecutive aborts on a vault sets `autopilot.suspended`;
   the app shows a pause notice and the owner must re-enable. Never retry-loop
   into gas burn.
