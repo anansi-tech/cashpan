@@ -10,8 +10,9 @@
  */
 
 import { humanToBase, baseToHuman } from './coin-config';
-import { fetchVaultBasic, LENDING_MARKET_ID } from './graphql';
+import { fetchVaultBasic, fetchVaultJson, LENDING_MARKET_ID } from './graphql';
 import { fetchSavingsValue } from './read-layer';
+import { validateSchedule, scheduleSentence, nextRun, type PolicySchedule } from './policy-schedule';
 
 const VENUE_ID = process.env.VENUE_ID ?? '';
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';
@@ -74,6 +75,32 @@ export interface TopupProposal {
 
 export type Proposal = SendProposal | WithdrawToMeProposal | SweepProposal | TopupProposal;
 
+/**
+ * Phase B: recurring-send policy proposal. NOT part of the Proposal union —
+ * it renders as a PolicyCard (activation flow), never a ConfirmCard (one tx).
+ */
+export interface RecurringSendProposal {
+  action: 'recurringSend';
+  amountSui: string;
+  amountBase: string;
+  payeeLabel: string;
+  recipient?: string;
+  schedule: PolicySchedule;
+  /** "Every Friday" — amount/payee are rendered by the card from the fields. */
+  scheduleText: string;
+  nextRunISO?: string;
+  /** Recipient not yet on the on-chain allowlist → confirm shows the extra signing step. */
+  needsAllowlist?: boolean;
+  /** Autopilot off → confirm shows the enable step (sends need an AgentCap). */
+  needsAutopilot?: boolean;
+  /** Warn-not-block: active policies together could brush the daily outflow cap. */
+  capWarning?: string;
+  blocked?: BlockReason | 'exceeds_per_tx_cap' | 'invalid_schedule';
+  /** The real per-send limit, human units — shown when blocked on the cap. */
+  perTxCapSui?: string;
+  blockedDetail?: string;
+}
+
 // ─── Vault state ──────────────────────────────────────────────────────────────
 
 interface VaultState {
@@ -112,6 +139,82 @@ export async function proposeSend(
 
   if (!recipient) return { ...base, recipient: undefined, blocked: 'not_a_payee' };
   if (vault.liquid < amountMist) return { ...base, blocked: 'insufficient_liquid' };
+
+  return base;
+}
+
+/** VecSet<address> in GraphQL object JSON: plain array or { contents: [...] }. */
+function allowlistFromVaultJson(vf: Record<string, unknown>): string[] {
+  const raw = vf.allowlist as string[] | { contents?: string[] } | undefined;
+  if (Array.isArray(raw)) return raw;
+  return raw?.contents ?? [];
+}
+
+/**
+ * Author a scheduled-send policy (Phase B). Validates against LIVE chain
+ * state; returns a proposal for the PolicyCard — nothing is stored or signed
+ * here. Both authoring doors (chat tool, Send-sheet form) call this.
+ *
+ * @param activePolicyTotalBase sum of the vault's active policy amounts, for
+ *        the warn-not-block daily-cap check (caller reads it from Mongo).
+ */
+export async function proposeRecurringSend(
+  amountSuiStr: string,
+  payeeLabel: string,
+  schedule: PolicySchedule,
+  vaultId: string,
+  contactMap: Record<string, string> = {},
+  opts: { activePolicyTotalBase?: bigint; autopilotOn?: boolean } = {},
+): Promise<RecurringSendProposal> {
+  const amountMist = suiToMist(amountSuiStr);
+  const recipient = contactMap[payeeLabel.toLowerCase()];
+
+  const base: RecurringSendProposal = {
+    action: 'recurringSend',
+    amountSui: mistToSui(amountMist),
+    amountBase: amountMist.toString(),
+    payeeLabel,
+    recipient,
+    schedule,
+    scheduleText: '',
+  };
+
+  try {
+    validateSchedule(schedule);
+  } catch (e) {
+    return { ...base, blocked: 'invalid_schedule', blockedDetail: e instanceof Error ? e.message : 'Invalid schedule' };
+  }
+  base.scheduleText = scheduleSentence(schedule);
+  base.nextRunISO = nextRun(schedule, new Date())?.toISOString();
+  if (!base.nextRunISO) {
+    return { ...base, blocked: 'invalid_schedule', blockedDetail: 'That date is already in the past' };
+  }
+
+  if (!recipient) return { ...base, recipient: undefined, blocked: 'not_a_payee' };
+  if (amountMist <= 0n) {
+    return { ...base, blocked: 'invalid_schedule', blockedDetail: 'Amount must be more than $0' };
+  }
+
+  const vf = await fetchVaultJson(vaultId);
+  const perTxCap = BigInt(String(vf.outflow_per_tx_cap ?? '0'));
+  const dailyCap = BigInt(String(vf.outflow_daily_cap ?? '0'));
+
+  // Hard block: a send above the per-tx outflow cap can never execute — tell
+  // the user the REAL limit rather than letting the policy fail forever.
+  if (amountMist > perTxCap) {
+    return { ...base, blocked: 'exceeds_per_tx_cap', perTxCapSui: mistToSui(perTxCap) };
+  }
+
+  // Warn (not block): this policy plus existing active ones could contend for
+  // the daily outflow cap; sends wait for the next epoch automatically.
+  const totalBase = (opts.activePolicyTotalBase ?? 0n) + amountMist;
+  if (dailyCap > 0n && totalBase > dailyCap) {
+    base.capWarning = `Together with your other standing orders this can pass the $${mistToSui(dailyCap)} daily limit — a send that hits it waits for the next day.`;
+  }
+
+  const allowlisted = allowlistFromVaultJson(vf).some((a) => a.toLowerCase() === recipient.toLowerCase());
+  if (!allowlisted) base.needsAllowlist = true;
+  if (!opts.autopilotOn) base.needsAutopilot = true;
 
   return base;
 }

@@ -197,8 +197,10 @@ export async function getAgentActivity(
         const byAgent = Boolean(json.by_agent);
         const to = String(json.to ?? '');
         const toLabel = addressToName[to.toLowerCase()] ?? (to.length > 12 ? `${to.slice(0, 6)}…${to.slice(-4)}` : to);
+        // by_agent is an ON-CHAIN fact (only agent_send emits it true) —
+        // "Autopilot sent" is attribution, never a stored label. Phase A voice.
         const text = byAgent
-          ? `Agent sent ${display} ${COIN_SYMBOL} to ${toLabel}`
+          ? `Autopilot sent ${display} ${COIN_SYMBOL} to ${toLabel}`
           : `Sent ${display} ${COIN_SYMBOL} to ${toLabel}`;
         events.push({ type: 'send', text, amount, byAgent, to, timestampMs, digest });
       } else if (eventType.endsWith('::DepositEvent')) {

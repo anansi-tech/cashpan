@@ -7,6 +7,8 @@ import { fetchVaultState, getLiveAprBps } from '@/lib/graphql';
 import { computeProposals } from '@/lib/brain';
 import { suiNetwork } from '@/lib/sui';
 import type { Balances } from '@/lib/read-layer';
+import { listUnacknowledgedFailures, getPolicyById } from '@/lib/db/policies';
+import { baseToHuman } from '@/lib/coin-config';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,12 +32,13 @@ export async function GET(req: Request): Promise<Response> {
 
   // One GraphQL call (vault + epoch + wallet coins) + one simulateTransaction (savings).
   // Activity, APR, and principal replay run concurrently alongside them.
-  const [stateResult, savingsResult, activityResult, aprResult, principalResult] = await Promise.allSettled([
+  const [stateResult, savingsResult, activityResult, aprResult, principalResult, failuresResult] = await Promise.allSettled([
     fetchVaultState(vault.vaultId, vault.payoutAddress, COIN_TYPE),
     fetchSavingsValue(vault.vaultId),
     getAgentActivity(10, vault.vaultId, addressToName),
     getLiveAprBps(COIN_TYPE),
     getReplayedPrincipal(vault.vaultId),
+    listUnacknowledgedFailures(vault.vaultId),
   ]);
 
   // NEVER serve zeros as truth: if either balance read is still failing after
@@ -72,6 +75,26 @@ export async function GET(req: Request): Promise<Response> {
     aprBps: String(aprBps),
   };
 
+  // Standing-order failures surface until acknowledged (Phase B notify card).
+  // A run the worker will retry on its own isn't the owner's problem yet:
+  // infra waits never surface, and attempt-capped reasons surface only once
+  // the attempt budget is spent. Terminal reasons surface immediately.
+  const rawFailures = failuresResult.status === 'fulfilled' ? failuresResult.value : [];
+  const NEVER_SURFACE = new Set(['epoch_cap_wait', 'read_failed', 'funding_failed']);
+  const CAPPED_RETRY = new Set(['insufficient_funds', 'crash_recovered']);
+  const surfaced = rawFailures.filter((f) => !NEVER_SURFACE.has(f.error ?? '')
+    && (!CAPPED_RETRY.has(f.error ?? '') || f.attempts >= 3));
+  const policyFailures = await Promise.all(surfaced.slice(0, 3).map(async (f) => {
+    const policy = await getPolicyById(f.policyId).catch(() => null);
+    return {
+      runId: f._id,
+      label: policy?.recipient.label ?? 'a standing order',
+      amountSui: baseToHuman(BigInt(f.amountBase), 6),
+      error: f.error ?? 'failed',
+      policyStatus: policy?.status ?? 'active',
+    };
+  }));
+
   // Belt over force-dynamic: forbid every cache layer (CDN, proxy, browser)
   // from holding this response — a confirmed tx must be visible on the next poll.
   return NextResponse.json({
@@ -83,5 +106,6 @@ export async function GET(req: Request): Promise<Response> {
     contacts,
     settings,
     autopilot: vault.autopilot ?? { enabled: false },
+    policyFailures,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

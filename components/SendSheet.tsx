@@ -5,8 +5,10 @@ import type { CSSProperties } from 'react';
 import { useVaultData } from './VaultDataProvider';
 import { ContactsPanel } from './ContactsPanel';
 import { ConfirmCard } from './ConfirmCard';
+import { PolicyCard } from './PolicyCard';
 import type { VaultTxContext } from '@/lib/vault-tx';
-import type { SendProposal, Proposal } from '@/lib/propose';
+import type { SendProposal, Proposal, RecurringSendProposal } from '@/lib/propose';
+import type { PolicySchedule } from '@/lib/policy-schedule';
 import { formatMoney } from '@/lib/format';
 import { openCashOut } from '@/lib/offramp';
 
@@ -123,6 +125,13 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   const [contactName, setContactName] = useState('');
   const [contactSaved, setContactSaved] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
+  // "Make it repeating" (Phase B) — same PolicyCard pipeline as the chat door.
+  const [repeating, setRepeating] = useState(false);
+  const [freq, setFreq] = useState<'weekly' | 'monthly'>('weekly');
+  const [dayOfWeek, setDayOfWeek] = useState(5); // Friday
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [policyProposal, setPolicyProposal] = useState<RecurringSendProposal | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
   const [cashOutState, setCashOutState] = useState<'idle' | 'preparing' | 'opening'>('idle');
   const [cashOutError, setCashOutError] = useState('');
   const [cashOutAmount, setCashOutAmount] = useState('');
@@ -211,6 +220,31 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   const handleAmountNext = () => {
     const amtNum = parseFloat(amount);
     if (!recipientAddress || isNaN(amtNum) || amtNum <= 0) return;
+
+    if (repeating) {
+      // Preview through the SAME server pipeline the chat door uses — the
+      // returned proposal (incl. blocked reasons and extra signing steps)
+      // renders as the same PolicyCard.
+      const schedule: PolicySchedule = freq === 'weekly'
+        ? { kind: 'weekly', dayOfWeek, timeUTC: '13:00' }
+        : { kind: 'monthly', dayOfMonth, timeUTC: '13:00' };
+      setPolicyLoading(true);
+      void (async () => {
+        try {
+          const res = await fetch('/api/policies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amountSui: amount, payeeLabel: recipientLabel, schedule, preview: true }),
+          });
+          const { proposal: p } = await res.json() as { proposal?: RecurringSendProposal };
+          if (p) { setPolicyProposal(p); setStep('confirm'); }
+        } finally {
+          setPolicyLoading(false);
+        }
+      })();
+      return;
+    }
+
     const p: SendProposal = {
       action: 'send',
       amountSui: amount,
@@ -247,8 +281,8 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
   };
 
   const goBack = () => {
-    if (step === 'confirm') { setStep('amount'); return; }
-    if (step === 'amount') { setAmount(''); setStep('recipient'); }
+    if (step === 'confirm') { setPolicyProposal(null); setStep('amount'); return; }
+    if (step === 'amount') { setAmount(''); setRepeating(false); setStep('recipient'); }
   };
 
   // ── Cash-out staging confirm (step 1 of 2) ─────────────────────────────────
@@ -506,9 +540,59 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
             </div>
           </div>
 
+          {/* Make it repeating (Phase B) — contacts only: a standing order
+              needs a saved payee, so raw addresses go through save-as-contact. */}
+          {!isRawAddress && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--color-text)' }}>
+                <input
+                  type="checkbox"
+                  checked={repeating}
+                  onChange={(e) => setRepeating(e.target.checked)}
+                  style={{ width: '16px', height: '16px', accentColor: 'var(--color-savings)' }}
+                />
+                Make it repeating
+              </label>
+
+              {repeating && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <select
+                    value={freq}
+                    onChange={(e) => setFreq(e.target.value as 'weekly' | 'monthly')}
+                    style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
+                  >
+                    <option value="weekly">Every week</option>
+                    <option value="monthly">Every month</option>
+                  </select>
+                  {freq === 'weekly' ? (
+                    <select
+                      value={dayOfWeek}
+                      onChange={(e) => setDayOfWeek(Number(e.target.value))}
+                      style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
+                    >
+                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d, i) => (
+                        <option key={d} value={i + 1}>on {d}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={dayOfMonth}
+                      onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                      style={{ ...inputStyle, width: 'auto', padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
+                    >
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>on the {d}{d === 1 || d === 21 || d === 31 ? 'st' : d === 2 || d === 22 ? 'nd' : d === 3 || d === 23 ? 'rd' : 'th'}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             onClick={handleAmountNext}
-            disabled={!amount || parseFloat(amount) <= 0}
+            disabled={!amount || parseFloat(amount) <= 0 || policyLoading}
             style={{
               background: amount && parseFloat(amount) > 0 ? 'var(--color-savings)' : 'rgba(255,255,255,0.06)',
               color: amount && parseFloat(amount) > 0 ? '#0a0f1e' : 'var(--color-muted)',
@@ -516,15 +600,27 @@ export function SendSheet({ vaultCtx, onClose }: { vaultCtx: VaultTxContext; onC
               padding: '0.875rem', fontSize: '0.95rem', fontWeight: 700,
               cursor: amount && parseFloat(amount) > 0 ? 'pointer' : 'not-allowed',
               minHeight: '48px', transition: 'background 0.15s, color 0.15s',
+              opacity: policyLoading ? 0.6 : 1,
             }}
           >
-            Review →
+            {policyLoading ? 'Checking…' : 'Review →'}
           </button>
         </div>
       )}
 
+      {/* Step: Confirm (repeating → PolicyCard, same card as the chat door) */}
+      {step === 'confirm' && policyProposal && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <PolicyCard
+            proposal={policyProposal}
+            vaultCtx={vaultCtx}
+            onDismiss={() => { setPolicyProposal(null); setStep('amount'); }}
+          />
+        </div>
+      )}
+
       {/* Step: Confirm */}
-      {step === 'confirm' && proposal && (
+      {step === 'confirm' && !policyProposal && proposal && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <ConfirmCard
             proposal={proposal}

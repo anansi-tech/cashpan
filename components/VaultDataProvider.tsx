@@ -22,6 +22,15 @@ export interface AutopilotState {
   suspendReason?: string;
 }
 
+/** A standing-order run that failed and hasn't been acknowledged (Phase B). */
+export interface PolicyFailure {
+  runId: string;
+  label: string;
+  amountSui: string;
+  error: string;
+  policyStatus: string;
+}
+
 export interface AppState {
   balances: Balances | null;
   earnings: Earnings | null;
@@ -31,6 +40,7 @@ export interface AppState {
   contacts: Contact[];
   settings: UserSettings;
   autopilot: AutopilotState;
+  policyFailures: PolicyFailure[];
 }
 
 interface VaultContextValue extends AppState {
@@ -67,6 +77,7 @@ export function VaultDataProvider({
     contacts: initial?.contacts ?? [],
     settings: DEFAULT_SETTINGS,
     autopilot: { enabled: false },
+    policyFailures: [],
   });
   // Server-rendered initial data counts as loaded — skeletons are only for
   // a genuinely empty first paint.

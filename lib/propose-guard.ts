@@ -54,6 +54,20 @@ export function guardNumericAmount(
 }
 
 /**
+ * For POLICY proposals (recurring sends): strictest form — a standing order
+ * executes forever, so when the user's message names any money number, the
+ * policy amount must BE one of those numbers exactly. "send mom $5 weekly"
+ * can never author a $50 policy.
+ */
+export function guardExactAmount(userText: string, amountHuman: string): GuardResult {
+  const candidates = extractMoneyNumbers(userText);
+  if (candidates.length === 0) return { ok: true }; // amount came from a form/prior turn
+  const amount = parseFloat(amountHuman);
+  if (candidates.some((n) => Math.abs(n - amount) < 1e-9)) return { ok: true };
+  return { ok: false, userNumber: Math.max(...candidates) };
+}
+
+/**
  * For drain proposals: a drain is only legitimate when the user did NOT name
  * a specific amount to move. Numbers matching keepInSave are expected
  * ("keep $19, move the rest"); any other plausible number means the model

@@ -19,6 +19,8 @@ describe('validateSponsorCommands', () => {
     'owner_send', 'withdraw', 'owner_rebalance', 'redeem_position', 'create_vault', 'deposit',
     // Autopilot enable/disable — owner-signed, OwnerCap-scoped by the Move layer.
     'issue_agent_cap', 'revoke',
+    // Phase B allowlist management — owner-signed, OwnerCap-scoped by the Move layer.
+    'add_payee', 'remove_payee',
   ])('accepts vault::%s', (fn) => {
     expect(validateSponsorCommands([mv(PKG, fn)], allowed).ok).toBe(true);
   });

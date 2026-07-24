@@ -5,7 +5,8 @@ import { DefaultChatTransport, isToolUIPart, getToolName } from 'ai';
 import type { UIMessage } from 'ai';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { ConfirmCard } from './ConfirmCard';
-import type { Proposal } from '@/lib/propose';
+import { PolicyCard } from './PolicyCard';
+import type { Proposal, RecurringSendProposal } from '@/lib/propose';
 import type { VaultTxContext } from '@/lib/vault-tx';
 
 export function ChatPanel({ onRefresh, vaultCtx }: { onRefresh?: () => void; vaultCtx: VaultTxContext }) {
@@ -235,10 +236,25 @@ function ChatMessage({
       {/* Proposal cards after text — user reads context first, then acts */}
       {!isUser && proposalParts.map((part) => {
         const callId = part['toolCallId'] as string;
-        return dismissed.has(callId) ? null : (
+        if (dismissed.has(callId)) return null;
+        const output = part['output'] as Proposal | RecurringSendProposal;
+        // Standing orders get the activation flow (multi-step, owner-signed),
+        // not the single-tx ConfirmCard.
+        if (output.action === 'recurringSend') {
+          return (
+            <PolicyCard
+              key={callId}
+              proposal={output}
+              vaultCtx={vaultCtx}
+              onDismiss={() => onDismiss(callId)}
+              onDone={() => onConfirm(callId)}
+            />
+          );
+        }
+        return (
           <ConfirmCard
             key={callId}
-            proposal={part['output'] as Proposal}
+            proposal={output}
             onDismiss={() => onDismiss(callId)}
             onSuccess={(digest) => { onConfirm(callId); onSuccess(digest); }}
             vaultCtx={vaultCtx}

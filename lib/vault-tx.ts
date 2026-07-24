@@ -161,6 +161,43 @@ export function buildRevokeAgentTx(ctx: VaultTxContext): Transaction {
   return tx;
 }
 
+/** Owner-signed: add a recipient to the agent-send allowlist (vault::add_payee).
+ *  Sponsored + whitelisted — the PolicyCard confirm flow's step ①. */
+export function buildAddPayeeTx(recipient: string, ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId' | 'ownerCapId'>): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::add_payee`,
+    typeArguments: [ctx.coinType],
+    arguments: [tx.object(ctx.ownerCapId), tx.object(ctx.vaultId), tx.pure.address(recipient)],
+  });
+  return tx;
+}
+
+/**
+ * AGENT-signed scheduled send (worker only — agent pays its own gas, NEVER
+ * sponsored). Chain enforces: nonce → ALLOWLIST → outflow per-tx cap →
+ * outflow daily cap → liquid balance. No allowlist entry, no send.
+ */
+export function buildAgentSendTx(
+  agentCapId: string,
+  amountBase: bigint,
+  recipient: string,
+  ctx: Pick<VaultTxContext, 'packageId' | 'coinType' | 'vaultId'>,
+): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${ctx.packageId}::vault::agent_send`,
+    typeArguments: [ctx.coinType],
+    arguments: [
+      tx.object(agentCapId),
+      tx.object(ctx.vaultId),
+      tx.pure.u64(amountBase),
+      tx.pure.address(recipient),
+    ],
+  });
+  return tx;
+}
+
 /**
  * AGENT-signed rebalance (worker only — the agent pays its own gas).
  * Chain enforces: nonce validity → venue → per-tx cap → daily cap → balance.

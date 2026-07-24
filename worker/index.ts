@@ -31,6 +31,7 @@ import { buildAgentRebalanceTx, type VaultTxContext } from '../lib/vault-tx.js';
 import { humanToBase } from '../lib/coin-config.js';
 import { listAutopilotVaults, suspendAutopilot, type VaultRecord } from '../lib/db/vault-registry.js';
 import { suiNetwork } from '../lib/sui.js';
+import { runPolicyPass } from './policies.js';
 
 const LOOP_MS = 60_000;
 const COOLDOWN_MS = 5 * 60_000;      // per vault, per direction
@@ -150,6 +151,7 @@ async function tick(client: SuiJsonRpcClient, keypair: Ed25519Keypair): Promise<
     return;
   }
 
+  const suspendedThisTick = new Set<string>();
   for (const vault of vaults) {
     if (!vault.autopilot?.agentCapId) {
       console.warn(`[autopilot] ${vault.vaultId.slice(0, 10)}… enabled but has no agentCapId — skipping`);
@@ -167,10 +169,16 @@ async function tick(client: SuiJsonRpcClient, keypair: Ed25519Keypair): Promise<
         // Never retry-loop into gas burn — park it and make the owner re-enable.
         await suspendAutopilot(vault.identityKey, msg.slice(0, 200)).catch(() => {});
         abortCounts.delete(vault.vaultId);
+        suspendedThisTick.add(vault.vaultId);
         console.error(`[autopilot] SUSPENDED ${vault.vaultId.slice(0, 10)}… after ${ABORT_SUSPEND_THRESHOLD} aborts`);
       }
     }
   }
+
+  // Phase B: scheduled sends run AFTER the rebalance pass so a low Spend
+  // pocket has already had its topup chance this tick (funding composition).
+  // A vault suspended above sits out — suspension pauses its policies too.
+  await runPolicyPass(client, keypair, vaults.filter((v) => !suspendedThisTick.has(v.vaultId)), network);
 }
 
 async function checkGas(client: SuiJsonRpcClient, address: string): Promise<void> {

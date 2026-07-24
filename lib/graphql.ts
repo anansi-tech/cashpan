@@ -124,6 +124,9 @@ export interface VaultBasic {
   liquid: bigint;
   currentEpoch: bigint;
   payoutAddress: string;
+  /** The full vault object JSON the query already fetched — callers needing
+      more fields (outflow caps, allowlist) read it here instead of re-querying. */
+  json: Record<string, unknown>;
 }
 
 export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
@@ -140,6 +143,7 @@ export async function fetchVaultBasic(vaultId: string): Promise<VaultBasic> {
     liquid: readLiquidBase(vaultJson),
     currentEpoch: BigInt(epoch?.epochId ?? 0),
     payoutAddress: String(vaultJson.payout_address ?? ''),
+    json: vaultJson,
   };
 }
 

@@ -26,6 +26,11 @@ const ALLOWED_FUNCTIONS = new Set([
   // verbs. Both are capability-scoped by the Move layer (OwnerCap required).
   'issue_agent_cap',
   'revoke',
+  // Phase B allowlist management — owner-signed (OwnerCap-gated in Move).
+  // agent_send itself stays OFF this list: the agent pays its own gas, and
+  // sponsoring it would let any session drain the gas station.
+  'add_payee',
+  'remove_payee',
 ]);
 
 const ALLOWED_MODULE = 'vault';
