@@ -79,7 +79,7 @@ export async function GET(req: Request): Promise<Response> {
   // Retryable shortfalls only show once attempts are exhausted — a run the
   // worker will retry on its own isn't the owner's problem yet.
   const rawFailures = failuresResult.status === 'fulfilled' ? failuresResult.value : [];
-  const surfaced = rawFailures.filter((f) => f.error !== 'epoch_cap_wait'
+  const surfaced = rawFailures.filter((f) => f.error !== 'epoch_cap_wait' && f.error !== 'read_failed'
     && (f.error !== 'insufficient_funds' || f.attempts >= 3));
   const policyFailures = await Promise.all(surfaced.slice(0, 3).map(async (f) => {
     const policy = await getPolicyById(f.policyId).catch(() => null);

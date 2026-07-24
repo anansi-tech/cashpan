@@ -27,7 +27,7 @@ import {
   listStaleExecutingRuns,
   type PolicyRecord, type PolicyRunRecord,
 } from '../lib/db/policies.js';
-import { fetchVaultBasic, fetchVaultJson } from '../lib/graphql.js';
+import { fetchVaultBasic } from '../lib/graphql.js';
 import { buildAgentSendTx } from '../lib/vault-tx.js';
 import { baseToHuman } from '../lib/coin-config.js';
 import type { VaultRecord } from '../lib/db/vault-registry.js';
@@ -44,7 +44,11 @@ const RETRY_SPACING_MS: Record<string, number> = {
   insufficient_funds: 60 * 60_000, // spec: ≥1h apart, same period only
   epoch_cap_wait: 15 * 60_000,     // waiting for the Sui epoch to roll over
   crash_recovered: 15 * 60_000,    // verified-not-sent after a mid-run crash
+  read_failed: 2 * 60_000,         // pre-flight read blip (429 etc.) — no money moved, certain
 };
+// Waiting on infrastructure/epoch, not on the user — retry until the period
+// ends rather than burning the attempt budget.
+const UNCAPPED_RETRY = new Set(['epoch_cap_wait', 'read_failed']);
 
 function label(p: PolicyRecord): string {
   return `policy ${p._id.slice(-6)} → ${p.recipient.label}`;
@@ -60,7 +64,9 @@ interface OutflowState {
 }
 
 async function fetchOutflowState(vaultId: string): Promise<OutflowState> {
-  const [vf, basic] = await Promise.all([fetchVaultJson(vaultId), fetchVaultBasic(vaultId)]);
+  // ONE GraphQL query: fetchVaultBasic's json carries the outflow fields too.
+  const basic = await fetchVaultBasic(vaultId);
+  const vf = basic.json;
   const epochRolled = basic.currentEpoch > BigInt(String(vf.last_reset_epoch ?? '0'));
   return {
     liquid: basic.liquid,
@@ -81,7 +87,19 @@ async function executeClaimedRun(
   period: string,
 ): Promise<void> {
   const amount = BigInt(policy.amountBase);
-  const state = await fetchOutflowState(vault.vaultId);
+
+  // Pre-flight reads are BEFORE any signing: a failure here is certainly
+  // money-not-moved, so fail the run retryable instead of leaving it
+  // 'executing' for the 10-min chain-verification path (that path is for
+  // genuine did-it-land ambiguity, i.e. submit errors only).
+  let state: OutflowState;
+  try {
+    state = await fetchOutflowState(vault.vaultId);
+  } catch (err) {
+    await markRunFailed(runId, 'read_failed');
+    console.warn(`[policy] ${label(policy)} pre-flight read failed (retrying in ~2min): ${err instanceof Error ? err.message : err}`);
+    return;
+  }
 
   // Gas-saving pre-checks (the chain re-checks all of these authoritatively).
   if (amount > state.perTxCap) {
@@ -132,7 +150,7 @@ async function executeClaimedRun(
 function retryEligible(run: PolicyRunRecord, now: number): boolean {
   const spacing = RETRY_SPACING_MS[run.error ?? ''];
   if (spacing === undefined) return false; // terminal reason
-  if (run.error !== 'epoch_cap_wait' && run.attempts >= MAX_ATTEMPTS) return false;
+  if (!UNCAPPED_RETRY.has(run.error ?? '') && run.attempts >= MAX_ATTEMPTS) return false;
   return now - new Date(run.lastAttemptAt).getTime() >= spacing;
 }
 
