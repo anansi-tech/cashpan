@@ -80,7 +80,7 @@ export async function GET(req: Request): Promise<Response> {
   // infra waits never surface, and attempt-capped reasons surface only once
   // the attempt budget is spent. Terminal reasons surface immediately.
   const rawFailures = failuresResult.status === 'fulfilled' ? failuresResult.value : [];
-  const NEVER_SURFACE = new Set(['epoch_cap_wait', 'read_failed']);
+  const NEVER_SURFACE = new Set(['epoch_cap_wait', 'read_failed', 'funding_failed']);
   const CAPPED_RETRY = new Set(['insufficient_funds', 'crash_recovered']);
   const surfaced = rawFailures.filter((f) => !NEVER_SURFACE.has(f.error ?? '')
     && (!CAPPED_RETRY.has(f.error ?? '') || f.attempts >= 3));

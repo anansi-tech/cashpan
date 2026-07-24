@@ -203,11 +203,20 @@ After owner confirm, execution is deterministic (`worker/policies.ts`).
   verified-absent → retryable 'crash_recovered'; query failed → row is LEFT
   ALONE and re-verified next pass. THE RULE: when uncertain whether money
   moved, stop and surface — never resend on ambiguity.
+- **The order funds itself** (learned live: buffer controller targets
+  buffer±band and NEVER guarantees `liquid ≥ amount` — deadband + cToken
+  withdrawal flooring parked Spend at $0.99 against a $1 send, permanently).
+  When liquid < amount, the policy pass topups the shortfall + 1¢ flooring
+  margin from Save via the same agent `rebalance` (chain rebalance caps
+  bound it), re-reads, then sends. `insufficient_funds` therefore means the
+  WHOLE VAULT can't cover it. Do NOT "fix" funding by touching the brain's
+  band/deadband — the band is load-bearing anti-churn (flooring makes exact
+  setpoints unreachable; without hysteresis the worker oscillates forever).
 - **Retries, same period only, no catchup**: insufficient_funds ≤3 attempts
-  ≥1h apart (rebalance pass runs first each tick — topup composition is the
-  only funding path); epoch_cap_wait retries ≥15min until the epoch rolls;
-  chain aborts park the POLICY ('failed', owner must resume). Missed periods
-  never roll forward.
+  ≥1h apart; epoch_cap_wait retries ≥15min until the epoch rolls;
+  read_failed/funding_failed (transport blips) retry ~2min uncapped and never
+  surface to the owner; chain aborts (send OR funding) park the POLICY
+  ('failed', owner must resume). Missed periods never roll forward.
 - **Two doors, one pipeline**: chat `proposeRecurringSend` (guarded by
   `guardExactAmount` — the policy amount must BE a number the user typed) and
   SendSheet "Make it repeating" (`POST /api/policies {preview:true}`) both

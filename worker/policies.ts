@@ -27,14 +27,20 @@ import {
   listStaleExecutingRuns,
   type PolicyRecord, type PolicyRunRecord,
 } from '../lib/db/policies.js';
-import { fetchVaultBasic } from '../lib/graphql.js';
-import { buildAgentSendTx } from '../lib/vault-tx.js';
-import { baseToHuman } from '../lib/coin-config.js';
+import { fetchVaultBasic, LENDING_MARKET_ID, LENDING_MARKET_TYPE } from '../lib/graphql.js';
+import { fetchSavingsValue } from '../lib/read-layer.js';
+import { buildAgentSendTx, buildAgentRebalanceTx, type VaultTxContext } from '../lib/vault-tx.js';
+import { baseToHuman, humanToBase } from '../lib/coin-config.js';
 import type { VaultRecord } from '../lib/db/vault-registry.js';
 
 const PACKAGE_ID = process.env.PACKAGE_ID ?? '';                     // events (defining id)
 const PACKAGE_ID_LATEST = process.env.PACKAGE_ID_LATEST ?? PACKAGE_ID; // moveCall targets
 const COIN_TYPE = process.env.COIN_TYPE ?? '';
+const VENUE_ID = process.env.VENUE_ID ?? '';
+const TOPUP = 1 as const;
+/** Suilend withdrawals floor at cToken granularity — fund one cent past the
+    shortfall so the landed amount still satisfies the send. */
+const FLOOR_MARGIN = humanToBase('0.01');
 
 const STALE_EXECUTING_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
@@ -45,10 +51,11 @@ const RETRY_SPACING_MS: Record<string, number> = {
   epoch_cap_wait: 15 * 60_000,     // waiting for the Sui epoch to roll over
   crash_recovered: 15 * 60_000,    // verified-not-sent after a mid-run crash
   read_failed: 2 * 60_000,         // pre-flight read blip (429 etc.) — no money moved, certain
+  funding_failed: 2 * 60_000,      // funding-topup transport blip — pocket-internal, safe to retry
 };
 // Waiting on infrastructure/epoch, not on the user — retry until the period
 // ends rather than burning the attempt budget.
-const UNCAPPED_RETRY = new Set(['epoch_cap_wait', 'read_failed']);
+const UNCAPPED_RETRY = new Set(['epoch_cap_wait', 'read_failed', 'funding_failed']);
 
 function label(p: PolicyRecord): string {
   return `policy ${p._id.slice(-6)} → ${p.recipient.label}`;
@@ -61,6 +68,10 @@ interface OutflowState {
   perTxCap: bigint;
   dailyCap: bigint;
   dailySpent: bigint; // already zeroed if the epoch rolled since last reset
+  // Rebalance caps — bound the funding topup (same epoch-reset window).
+  rebalancePerTxCap: bigint;
+  rebalanceDailyCap: bigint;
+  rebalanceDailySpent: bigint;
 }
 
 async function fetchOutflowState(vaultId: string): Promise<OutflowState> {
@@ -73,8 +84,58 @@ async function fetchOutflowState(vaultId: string): Promise<OutflowState> {
     perTxCap: BigInt(String(vf.outflow_per_tx_cap ?? '0')),
     dailyCap: BigInt(String(vf.outflow_daily_cap ?? '0')),
     dailySpent: epochRolled ? 0n : BigInt(String(vf.outflow_daily_spent ?? '0')),
+    rebalancePerTxCap: BigInt(String(vf.per_tx_cap ?? '0')),
+    rebalanceDailyCap: BigInt(String(vf.daily_cap ?? '0')),
+    rebalanceDailySpent: epochRolled ? 0n : BigInt(String(vf.daily_spent ?? '0')),
   };
 }
+
+/**
+ * Fund a shortfall from Save before a send — the standing order pulls what it
+ * needs (bank semantics): the general buffer controller keeps its own setpoint
+ * (buffer ± band) and never learns about pending sends; the send's
+ * `liquid ≥ amount` precondition is owned HERE. One agent rebalance TOPUP for
+ * shortfall + 1¢ flooring margin, bounded by the chain's rebalance caps and
+ * live savings. Pocket-internal (no outflow) — worst case a duplicate topup
+ * self-corrects via the sweep rule.
+ *
+ * Returns null on success (funded), or the run-failure reason.
+ */
+async function fundShortfall(
+  client: SuiJsonRpcClient,
+  keypair: Ed25519Keypair,
+  policy: PolicyRecord,
+  vault: VaultRecord,
+  state: OutflowState,
+  amount: bigint,
+): Promise<string | null> {
+  const shortfall = amount - state.liquid + FLOOR_MARGIN;
+  const savings = await fetchSavingsValue(vault.vaultId);
+  if (savings < shortfall) return 'insufficient_funds'; // genuinely not enough in the vault
+  const capRemaining = state.rebalanceDailyCap - state.rebalanceDailySpent;
+  if (shortfall > state.rebalancePerTxCap || shortfall > capRemaining) {
+    return 'epoch_cap_wait'; // rebalance caps block the topup — wait for rollover
+  }
+
+  const ctx: VaultTxContext = {
+    packageId: PACKAGE_ID_LATEST, coinType: COIN_TYPE, pType: LENDING_MARKET_TYPE,
+    vaultId: vault.vaultId, ownerCapId: vault.ownerCapId, venueId: VENUE_ID,
+    lendingMarketId: LENDING_MARKET_ID, userAddress: vault.payoutAddress,
+  };
+  const result = await client.signAndExecuteTransaction({
+    signer: keypair,
+    transaction: buildAgentRebalanceTx(vault.autopilot!.agentCapId!, TOPUP, shortfall, ctx),
+    options: { showEffects: true },
+  });
+  if (result.effects?.status.status !== 'success') {
+    // Chain abort (revoked cap, …) won't heal on its own — caller parks the policy.
+    throw new ChainAbort(result.effects?.status.error ?? 'funding topup aborted');
+  }
+  console.log(`[policy] ${label(policy)} funded ${baseToHuman(shortfall, 6)} from Save (topup) digest=${result.digest}`);
+  return null;
+}
+
+class ChainAbort extends Error {}
 
 // ─── Execution (protocol step 2+3 — caller has already claimed the run) ───────
 
@@ -117,10 +178,36 @@ async function executeClaimedRun(
     return;
   }
   if (state.liquid < amount) {
-    // The rebalance pass already ran this tick; still short is a real shortfall.
-    await markRunFailed(runId, 'insufficient_funds');
-    console.log(`[policy] ${label(policy)} insufficient Spend (${state.liquid} < ${amount})`);
-    return;
+    // The order funds itself: topup the shortfall from Save (see fundShortfall).
+    // 'insufficient_funds' now means the WHOLE VAULT can't cover the send.
+    try {
+      const reason = await fundShortfall(client, keypair, policy, vault, state, amount);
+      if (reason !== null) {
+        await markRunFailed(runId, reason);
+        console.log(`[policy] ${label(policy)} could not fund: ${reason} (liquid ${state.liquid} < ${amount})`);
+        return;
+      }
+    } catch (err) {
+      if (err instanceof ChainAbort) {
+        await markRunFailed(runId, err.message);
+        await markPolicyFailed(policy._id);
+        console.error(`[policy] ${label(policy)} funding chain abort — policy parked: ${err.message}`);
+      } else {
+        // Transport blip — pocket-internal, safe to retry fast; if the topup
+        // actually landed, the retry sees the higher liquid and just sends.
+        await markRunFailed(runId, 'funding_failed');
+        console.warn(`[policy] ${label(policy)} funding submit failed (retrying ~2min): ${err instanceof Error ? err.message : err}`);
+      }
+      return;
+    }
+    // Re-read: the topup FLOORS at cToken granularity, so trust the chain,
+    // not arithmetic. Margin should cover it; if not, retry fast.
+    state = await fetchOutflowState(vault.vaultId).catch(() => state);
+    if (state.liquid < amount) {
+      await markRunFailed(runId, 'funding_failed');
+      console.warn(`[policy] ${label(policy)} still short after funding (${state.liquid} < ${amount}) — retrying`);
+      return;
+    }
   }
 
   const result = await client.signAndExecuteTransaction({
