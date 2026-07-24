@@ -76,11 +76,14 @@ export async function GET(req: Request): Promise<Response> {
   };
 
   // Standing-order failures surface until acknowledged (Phase B notify card).
-  // Retryable shortfalls only show once attempts are exhausted — a run the
-  // worker will retry on its own isn't the owner's problem yet.
+  // A run the worker will retry on its own isn't the owner's problem yet:
+  // infra waits never surface, and attempt-capped reasons surface only once
+  // the attempt budget is spent. Terminal reasons surface immediately.
   const rawFailures = failuresResult.status === 'fulfilled' ? failuresResult.value : [];
-  const surfaced = rawFailures.filter((f) => f.error !== 'epoch_cap_wait' && f.error !== 'read_failed'
-    && (f.error !== 'insufficient_funds' || f.attempts >= 3));
+  const NEVER_SURFACE = new Set(['epoch_cap_wait', 'read_failed']);
+  const CAPPED_RETRY = new Set(['insufficient_funds', 'crash_recovered']);
+  const surfaced = rawFailures.filter((f) => !NEVER_SURFACE.has(f.error ?? '')
+    && (!CAPPED_RETRY.has(f.error ?? '') || f.attempts >= 3));
   const policyFailures = await Promise.all(surfaced.slice(0, 3).map(async (f) => {
     const policy = await getPolicyById(f.policyId).catch(() => null);
     return {

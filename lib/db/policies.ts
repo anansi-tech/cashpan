@@ -219,7 +219,13 @@ export async function reclaimFailedRun(runId: string): Promise<boolean> {
   await connectDB();
   const r = await runModel().updateOne(
     { _id: runId, status: 'failed' },
-    { $set: { status: 'executing', lastAttemptAt: new Date() }, $inc: { attempts: 1 } },
+    {
+      $set: { status: 'executing', lastAttemptAt: new Date() },
+      $inc: { attempts: 1 },
+      // A retry is a NEW outcome — an ack of the previous failure must not
+      // hide whatever this attempt produces.
+      $unset: { acknowledged: 1 },
+    },
   );
   return r.modifiedCount > 0;
 }
