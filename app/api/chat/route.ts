@@ -343,18 +343,29 @@ export async function POST(req: Request) {
           if (!guard.ok) {
             return { rejected: true, message: `The user said $${guard.userNumber} — call proposeRecurringSend again with amount "${guard.userNumber}".` };
           }
+          // gpt-5-nano sends optional params as "" instead of omitting them —
+          // blank means unset, never a validation error.
           const schedule: PolicySchedule = {
             kind: frequency,
-            dayOfWeek, dayOfMonth, dateUTC,
-            timeUTC: timeUTC ?? '13:00',
+            dayOfWeek, dayOfMonth,
+            dateUTC: dateUTC?.trim() ? dateUTC.trim() : undefined,
+            timeUTC: timeUTC?.trim() ? timeUTC.trim() : '13:00',
           };
           const active = await listPolicies(vaultId, suiNetwork());
           const activeTotal = active.filter((p) => p.status === 'active')
             .reduce((sum, p) => sum + BigInt(p.amountBase), 0n);
-          return proposeRecurringSend(amount, payeeLabel, schedule, vaultId, contactMap, {
+          const proposal = await proposeRecurringSend(amount, payeeLabel, schedule, vaultId, contactMap, {
             activePolicyTotalBase: activeTotal,
             autopilotOn: !!vault.autopilot?.enabled,
           });
+          // A malformed schedule is the MODEL's error, not the user's — return
+          // a rejection it can silently fix (same pattern as the amount guard)
+          // instead of rendering developer-speak in a card. User-decision
+          // blocks (not_a_payee, exceeds_per_tx_cap) still render as cards.
+          if (proposal.blocked === 'invalid_schedule') {
+            return { rejected: true, message: `Schedule invalid: ${proposal.blockedDetail ?? 'bad arguments'} — fix the arguments and call proposeRecurringSend again.` };
+          }
+          return proposal;
         },
       }),
 
