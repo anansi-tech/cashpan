@@ -99,7 +99,9 @@ async function fetchOutflowState(vaultId: string): Promise<OutflowState> {
  * live savings. Pocket-internal (no outflow) — worst case a duplicate topup
  * self-corrects via the sweep rule.
  *
- * Returns null on success (funded), or the run-failure reason.
+ * Returns the post-topup liquid from the tx's own RebalanceEvent
+ * (`liquid_after` — chain-authoritative, immune to indexer lag), or a
+ * run-failure reason string.
  */
 async function fundShortfall(
   client: SuiJsonRpcClient,
@@ -108,13 +110,13 @@ async function fundShortfall(
   vault: VaultRecord,
   state: OutflowState,
   amount: bigint,
-): Promise<string | null> {
+): Promise<{ liquidAfter: bigint } | { reason: string }> {
   const shortfall = amount - state.liquid + FLOOR_MARGIN;
   const savings = await fetchSavingsValue(vault.vaultId);
-  if (savings < shortfall) return 'insufficient_funds'; // genuinely not enough in the vault
+  if (savings < shortfall) return { reason: 'insufficient_funds' }; // genuinely not enough in the vault
   const capRemaining = state.rebalanceDailyCap - state.rebalanceDailySpent;
   if (shortfall > state.rebalancePerTxCap || shortfall > capRemaining) {
-    return 'epoch_cap_wait'; // rebalance caps block the topup — wait for rollover
+    return { reason: 'epoch_cap_wait' }; // rebalance caps block the topup — wait for rollover
   }
 
   const ctx: VaultTxContext = {
@@ -125,14 +127,19 @@ async function fundShortfall(
   const result = await client.signAndExecuteTransaction({
     signer: keypair,
     transaction: buildAgentRebalanceTx(vault.autopilot!.agentCapId!, TOPUP, shortfall, ctx),
-    options: { showEffects: true },
+    options: { showEffects: true, showEvents: true },
   });
   if (result.effects?.status.status !== 'success') {
     // Chain abort (revoked cap, …) won't heal on its own — caller parks the policy.
     throw new ChainAbort(result.effects?.status.error ?? 'funding topup aborted');
   }
   console.log(`[policy] ${label(policy)} funded ${baseToHuman(shortfall, 6)} from Save (topup) digest=${result.digest}`);
-  return null;
+
+  // The receipt beats the mirror: RebalanceEvent.liquid_after is the actual
+  // post-topup balance (withdrawal flooring included), straight from the tx.
+  const ev = (result.events ?? []).find((e) => e.type.endsWith('::vault::RebalanceEvent'));
+  const liquidAfter = (ev?.parsedJson as { liquid_after?: string } | undefined)?.liquid_after;
+  return { liquidAfter: liquidAfter !== undefined ? BigInt(liquidAfter) : -1n };
 }
 
 class ChainAbort extends Error {}
@@ -181,11 +188,19 @@ async function executeClaimedRun(
     // The order funds itself: topup the shortfall from Save (see fundShortfall).
     // 'insufficient_funds' now means the WHOLE VAULT can't cover the send.
     try {
-      const reason = await fundShortfall(client, keypair, policy, vault, state, amount);
-      if (reason !== null) {
-        await markRunFailed(runId, reason);
-        console.log(`[policy] ${label(policy)} could not fund: ${reason} (liquid ${state.liquid} < ${amount})`);
+      const funded = await fundShortfall(client, keypair, policy, vault, state, amount);
+      if ('reason' in funded) {
+        await markRunFailed(runId, funded.reason);
+        console.log(`[policy] ${label(policy)} could not fund: ${funded.reason} (liquid ${state.liquid} < ${amount})`);
         return;
+      }
+      if (funded.liquidAfter >= 0n) {
+        // Balance straight off the receipt — no indexer round-trip, no lag.
+        state.liquid = funded.liquidAfter;
+      } else {
+        // Event missing from the result (shouldn't happen — ledger
+        // completeness invariant): fall back to re-reading the mirror.
+        state = await fetchOutflowState(vault.vaultId).catch(() => state);
       }
     } catch (err) {
       if (err instanceof ChainAbort) {
@@ -200,9 +215,7 @@ async function executeClaimedRun(
       }
       return;
     }
-    // Re-read: the topup FLOORS at cToken granularity, so trust the chain,
-    // not arithmetic. Margin should cover it; if not, retry fast.
-    state = await fetchOutflowState(vault.vaultId).catch(() => state);
+    // Margin should have covered the withdrawal flooring; if not, retry fast.
     if (state.liquid < amount) {
       await markRunFailed(runId, 'funding_failed');
       console.warn(`[policy] ${label(policy)} still short after funding (${state.liquid} < ${amount}) — retrying`);
